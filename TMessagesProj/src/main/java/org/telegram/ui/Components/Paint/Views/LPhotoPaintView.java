@@ -1,6 +1,8 @@
 package org.telegram.ui.Components.Paint.Views;
 
 import static org.telegram.messenger.AndroidUtilities.dp;
+import static org.telegram.messenger.LocaleController.formatPluralString;
+import static org.telegram.messenger.LocaleController.getString;
 
 import android.animation.Animator;
 import android.animation.AnimatorListenerAdapter;
@@ -12,15 +14,18 @@ import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
 import android.graphics.Color;
-import android.graphics.Matrix;
+import android.graphics.ColorFilter;import android.graphics.Matrix;
 import android.graphics.Paint;
 import android.graphics.Path;
 import android.graphics.PorterDuff;
 import android.graphics.PorterDuffColorFilter;
 import android.graphics.PorterDuffXfermode;
 import android.graphics.Rect;
+import android.graphics.RectF;
 import android.graphics.SweepGradient;
 import android.graphics.drawable.GradientDrawable;
+import android.location.Address;
+import android.location.Geocoder;
 import android.os.Build;
 import android.os.Looper;
 import android.text.Layout;
@@ -31,6 +36,7 @@ import android.util.Pair;
 import android.util.SparseArray;
 import android.util.TypedValue;
 import android.view.Gravity;
+import android.view.HapticFeedbackConstants;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.View;
@@ -51,14 +57,17 @@ import androidx.dynamicanimation.animation.SpringForce;
 import com.google.android.gms.vision.Frame;
 import com.google.android.gms.vision.face.Face;
 import com.google.android.gms.vision.face.FaceDetector;
+import com.google.zxing.common.detector.MathUtils;
 
 import org.telegram.messenger.AndroidUtilities;
+import org.telegram.messenger.ApplicationLoader;
 import org.telegram.messenger.Bitmaps;
 import org.telegram.messenger.BuildVars;
 import org.telegram.messenger.DispatchQueue;
 import org.telegram.messenger.Emoji;
 import org.telegram.messenger.FileLoader;
 import org.telegram.messenger.FileLog;
+import org.telegram.messenger.ImageReceiver;
 import org.telegram.messenger.LocaleController;
 import org.telegram.messenger.MediaController;
 import org.telegram.messenger.MessageObject;
@@ -70,16 +79,21 @@ import org.telegram.messenger.UserConfig;
 import org.telegram.messenger.Utilities;
 import org.telegram.messenger.VideoEditedInfo;
 import org.telegram.tgnet.TLRPC;
+import org.telegram.tgnet.tl.TL_stories;
 import org.telegram.ui.ActionBar.ActionBar;
 import org.telegram.ui.ActionBar.ActionBarPopupWindow;
 import org.telegram.ui.ActionBar.AdjustPanLayoutHelper;
 import org.telegram.ui.ActionBar.AlertDialog;
+import org.telegram.ui.ActionBar.BaseFragment;
 import org.telegram.ui.ActionBar.Theme;
 import org.telegram.ui.BubbleActivity;
+import org.telegram.ui.Cells.ChatMessageCell;
 import org.telegram.ui.ChatActivity;
 import org.telegram.ui.Components.AnimatedEmojiDrawable;
 import org.telegram.ui.Components.AnimatedEmojiSpan;
 import org.telegram.ui.Components.AnimatedFloat;
+import org.telegram.ui.Components.BlurringShader;
+import org.telegram.ui.Components.BulletinFactory;
 import org.telegram.ui.Components.ChatActivityEnterViewAnimatedIconView;
 import org.telegram.ui.Components.ChatAttachAlert;
 import org.telegram.ui.Components.CubicBezierInterpolator;
@@ -96,13 +110,25 @@ import org.telegram.ui.Components.Paint.RenderView;
 import org.telegram.ui.Components.Paint.Swatch;
 import org.telegram.ui.Components.Paint.UndoStore;
 import org.telegram.ui.Components.Point;
+import org.telegram.ui.Components.Premium.PremiumFeatureBottomSheet;
 import org.telegram.ui.Components.RLottieDrawable;
+import org.telegram.ui.Components.Reactions.ReactionsLayoutInBubble;
+import org.telegram.ui.Components.Reactions.ReactionsUtils;
+import org.telegram.ui.Components.ReactionsContainerLayout;
 import org.telegram.ui.Components.Size;
 import org.telegram.ui.Components.SizeNotifierFrameLayout;
 import org.telegram.ui.Components.SizeNotifierFrameLayoutPhoto;
 import org.telegram.ui.Components.ThanosEffect;
+import org.telegram.ui.LaunchActivity;
 import org.telegram.ui.PhotoViewer;
+import org.telegram.ui.PremiumPreviewFragment;
+import org.telegram.ui.Stories.DarkThemeResourceProvider;
 import org.telegram.ui.Stories.recorder.EmojiBottomSheet;
+import org.telegram.ui.Stories.recorder.PaintView;
+import org.telegram.ui.Stories.recorder.StoryEntry;
+import org.telegram.ui.Stories.recorder.StoryLinkSheet;
+import org.telegram.ui.Stories.recorder.Weather;
+import org.telegram.ui.WrappedResourceProvider;
 
 import java.io.File;
 import java.math.BigInteger;
@@ -132,6 +158,7 @@ public class LPhotoPaintView extends SizeNotifierFrameLayoutPhoto implements IPh
     private EntityView currentEntityView;
     private boolean editingText;
     private int selectedTextType;
+    public boolean enteredThroughText;
 
     private boolean inBubbleMode;
 
@@ -139,6 +166,7 @@ public class LPhotoPaintView extends SizeNotifierFrameLayoutPhoto implements IPh
     private View renderInputView;
     private FrameLayout selectionContainerView;
     public EntitiesContainerView entitiesView;
+    private ArrayList<VideoEditedInfo.MediaEntity> initialEntities;
     private ThanosEffect thanosEffect;
     private FrameLayout topLayout;
     public FrameLayout bottomLayout;
@@ -218,69 +246,84 @@ public class LPhotoPaintView extends SizeNotifierFrameLayoutPhoto implements IPh
 
     private Runnable onDoneButtonClickedListener;
 
+    private int w, h;
+
     @SuppressLint("NotifyDataSetChanged")
-    public LPhotoPaintView(Context context, Activity activity, int currentAccount, Bitmap bitmap, Bitmap originalBitmap, int originalRotation, ArrayList<VideoEditedInfo.MediaEntity> entities, MediaController.CropState cropState, Runnable onInit, Theme.ResourcesProvider resourcesProvider) {
+    public LPhotoPaintView(Context context, Activity activity, int currentAccount, Bitmap bitmap, Bitmap originalBitmap, int originalRotation, ArrayList<VideoEditedInfo.MediaEntity> entities, MediaController.CropState cropState, Runnable onInit, Theme.ResourcesProvider resourcesProvider, FrameLayout parent, BlurringShader.BlurManager blurManager, boolean isVideo) {
         super(context, activity, true);
         setDelegate(this);
 
+        this.parent = parent;
         this.currentAccount = currentAccount;
-        this.resourcesProvider = key -> {
-            if (key == Theme.key_actionBarDefaultSubmenuBackground) {
-                return 0xFF282829;
-            } else if (key == Theme.key_actionBarDefaultSubmenuItem) {
-                return 0xFFFFFFFF;
-            } else if (key == Theme.key_dialogBackground) {
-                return 0xFF1F1F1F;
-            } else if (key == Theme.key_dialogTextBlack) {
-                return -592138;
-            } else if (key == Theme.key_dialogTextGray3) {
-                return -8553091;
-            } else if (key == Theme.key_chat_emojiPanelBackground) {
-                return 0xFF000000;
-            } else if (key == Theme.key_chat_emojiPanelShadowLine) {
-                return -1610612736;
-            } else if (key == Theme.key_chat_emojiBottomPanelIcon) {
-                return -9539985;
-            } else if (key == Theme.key_chat_emojiPanelBackspace) {
-                return -9539985;
-            } else if (key == Theme.key_chat_emojiPanelIcon) {
-                return -9539985;
-            } else if (key == Theme.key_windowBackgroundWhiteBlackText) {
-                return -1;
-            } else if (key == Theme.key_featuredStickers_addedIcon) {
-                return -11754001;
-            } else if (key == Theme.key_listSelector) {
-                return 0x1FFFFFFF;
-            } else if (key == Theme.key_profile_tabSelectedText) {
-                return 0xFFFFFFFF;
-            } else if (key == Theme.key_profile_tabText) {
-                return 0xFFFFFFFF;
-            } else if (key == Theme.key_profile_tabSelectedLine) {
-                return 0xFFFFFFFF;
-            } else if (key == Theme.key_profile_tabSelector) {
-                return 0x14FFFFFF;
-            } else if (key == Theme.key_chat_emojiSearchIcon || key == Theme.key_featuredStickers_addedIcon) {
-                return 0xFF878787;
-            } else if (key == Theme.key_chat_emojiSearchBackground) {
-                return 0x2E878787;
-            } else if (key == Theme.key_windowBackgroundGray) {
-                return 0xFF0D0D0D;
-            } else if (key == Theme.key_fastScrollInactive) {
-                return -12500671;
-            } else if (key == Theme.key_fastScrollActive) {
-                return -13133079;
-            } else if (key == Theme.key_fastScrollText) {
-                return 0xffffffff;
-            } else if (key == Theme.key_windowBackgroundWhite) {
-                return -15198183;
-            } else if (key == Theme.key_divider) {
-                return 0xFF000000;
+        this.blurManager = blurManager;
+        this.isVideo = isVideo;
+        this.resourcesProvider = new Theme.ResourcesProvider() {
+            @Override
+            public int getColor(int key) {
+                if (key == Theme.key_actionBarDefaultSubmenuBackground) {
+                    return 0xFF282829;
+                } else if (key == Theme.key_actionBarDefaultSubmenuItem) {
+                    return 0xFFFFFFFF;
+                } else if (key == Theme.key_dialogBackground) {
+                    return 0xFF1F1F1F;
+                } else if (key == Theme.key_dialogTextBlack) {
+                    return -592138;
+                } else if (key == Theme.key_dialogTextGray3) {
+                    return -8553091;
+                } else if (key == Theme.key_chat_emojiPanelBackground) {
+                    return 0xFF000000;
+                } else if (key == Theme.key_chat_emojiPanelShadowLine) {
+                    return -1610612736;
+                } else if (key == Theme.key_chat_emojiBottomPanelIcon) {
+                    return -9539985;
+                } else if (key == Theme.key_chat_emojiPanelBackspace) {
+                    return -9539985;
+                } else if (key == Theme.key_chat_emojiPanelIcon) {
+                    return -9539985;
+//                } else if (key == Theme.key_chat_emojiPanelIconSelected) {
+//                    return -10177041;
+                } else if (key == Theme.key_windowBackgroundWhiteBlackText) {
+                    return -1;
+                } else if (key == Theme.key_featuredStickers_addedIcon) {
+                    return -11754001;
+                } else if (key == Theme.key_listSelector) {
+                    return 0x1FFFFFFF;
+                } else if (key == Theme.key_profile_tabSelectedText) {
+                    return 0xFFFFFFFF;
+                } else if (key == Theme.key_profile_tabText) {
+                    return 0xFFFFFFFF;
+                } else if (key == Theme.key_profile_tabSelectedLine) {
+                    return 0xFFFFFFFF;
+                } else if (key == Theme.key_profile_tabSelector) {
+                    return 0x14FFFFFF;
+                } else if (key == Theme.key_chat_emojiSearchIcon || key == Theme.key_featuredStickers_addedIcon) {
+                    return 0xFF878787;
+                } else if (key == Theme.key_chat_emojiSearchBackground) {
+                    return 0x2E878787;
+                } else if (key == Theme.key_windowBackgroundGray) {
+                    return 0xFF0D0D0D;
+                }
+
+                if (resourcesProvider != null) {
+                    return resourcesProvider.getColor(key);
+                } else {
+                    return Theme.getColor(key);
+                }
             }
 
-            if (resourcesProvider != null) {
-                return resourcesProvider.getColor(key);
-            } else {
-                return Theme.getColor(key);
+            @Override
+            public Paint getPaint(String paintKey) {
+                return resourcesProvider.getPaint(paintKey);
+            }
+
+            private ColorFilter animatedEmojiColorFilter;
+
+            @Override
+            public ColorFilter getAnimatedEmojiColorFilter() {
+                if (animatedEmojiColorFilter == null) {
+                    animatedEmojiColorFilter = new PorterDuffColorFilter(0xFFFFFFFF, PorterDuff.Mode.SRC_IN);
+                }
+                return animatedEmojiColorFilter;
             }
         };
         this.currentCropState = cropState;
@@ -397,6 +440,11 @@ public class LPhotoPaintView extends SizeNotifierFrameLayoutPhoto implements IPh
             @Override
             public void onEntityDeselect() {
                 selectEntity(null);
+                if (enteredThroughText) {
+                    dismiss();
+                    enteredThroughText = false;
+                }
+                showReactionsLayout(false);
             }
         }) {
             Paint linePaint = new Paint();
@@ -409,6 +457,18 @@ public class LPhotoPaintView extends SizeNotifierFrameLayoutPhoto implements IPh
                 linePaint.setStrokeWidth(dp(2));
                 linePaint.setStyle(Paint.Style.STROKE);
                 linePaint.setColor(Color.WHITE);
+            }
+
+            @Override
+            protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
+                super.onMeasure(widthMeasureSpec, heightMeasureSpec);
+                if (w <= 0) {
+                    w = entitiesView.getMeasuredWidth();
+                }
+                if (h <= 0) {
+                    h = entitiesView.getMeasuredHeight();
+                }
+                setupEntities();
             }
 
             @Override
@@ -454,68 +514,9 @@ public class LPhotoPaintView extends SizeNotifierFrameLayoutPhoto implements IPh
             }
         };
         addView(entitiesView);
+        initialEntities = entities;;
+        setupEntities();
 
-        if (entities != null && !entities.isEmpty()) {
-            for (int a = 0, N = entities.size(); a < N; a++) {
-                VideoEditedInfo.MediaEntity entity = entities.get(a);
-                EntityView view;
-                if (entity.type == VideoEditedInfo.MediaEntity.TYPE_STICKER) {
-                    StickerView stickerView = createSticker(entity.parentObject, entity.document, false);
-                    if ((entity.subType & 2) != 0) {
-                        stickerView.mirror();
-                    }
-                    view = stickerView;
-                    ViewGroup.LayoutParams layoutParams = view.getLayoutParams();
-                    layoutParams.width = entity.viewWidth;
-                    layoutParams.height = entity.viewHeight;
-                } else if (entity.type == VideoEditedInfo.MediaEntity.TYPE_TEXT) {
-                    TextPaintView textPaintView = createText(false);
-                    textPaintView.setType(entity.subType);
-                    textPaintView.setTypeface(entity.textTypeface);
-                    textPaintView.setBaseFontSize(entity.fontSize);
-                    SpannableString text = new SpannableString(entity.text);
-                    for (VideoEditedInfo.EmojiEntity e : entity.entities) {
-                        text.setSpan(new AnimatedEmojiSpan(e.document_id, textPaintView.getFontMetricsInt()), e.offset, e.offset + e.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-                    }
-                    CharSequence charSequence = text;
-                    charSequence = Emoji.replaceEmoji(charSequence, textPaintView.getFontMetricsInt(), (int) (textPaintView.getFontSize() * .8f), false);
-                    if (charSequence instanceof Spanned) {
-                        Emoji.EmojiSpan[] spans = ((Spanned) charSequence).getSpans(0, charSequence.length(), Emoji.EmojiSpan.class);
-                        if (spans != null) {
-                            for (int i = 0; i < spans.length; ++i) {
-                                spans[i].scale = .85f;
-                            }
-                        }
-                    }
-                    textPaintView.setText(charSequence);
-                    setTextAlignment(textPaintView, entity.textAlign);
-                    Swatch swatch = textPaintView.getSwatch();
-                    swatch.color = entity.color;
-                    textPaintView.setSwatch(swatch);
-                    view = textPaintView;
-                } else if (entity.type == VideoEditedInfo.MediaEntity.TYPE_PHOTO) {
-                    PhotoView photoView = createPhoto(entity.text, false);
-                    photoView.preloadSegmented(entity.segmentedPath);
-                    if ((entity.subType & 2) != 0) {
-                        photoView.mirror();
-                    }
-                    if ((entity.subType & 16) != 0) {
-                        photoView.toggleSegmented(false);
-                    }
-                    view = photoView;
-                    ViewGroup.LayoutParams layoutParams = view.getLayoutParams();
-                    layoutParams.width = entity.viewWidth;
-                    layoutParams.height = entity.viewHeight;
-                } else {
-                    continue;
-                }
-                view.setX(entity.x * paintingSize.width - entity.viewWidth * (1 - entity.scale) / 2);
-                view.setY(entity.y * paintingSize.height - entity.viewHeight * (1 - entity.scale) / 2);
-                view.setPosition(new Point(view.getX() + entity.viewWidth / 2f, view.getY() + entity.viewHeight / 2f));
-                view.setScale(entity.scale);
-                view.setRotation((float) (-entity.rotation / Math.PI * 180));
-            }
-        }
         entitiesView.setVisibility(INVISIBLE);
 
         selectionContainerView = new FrameLayout(context) {
@@ -957,6 +958,137 @@ public class LPhotoPaintView extends SizeNotifierFrameLayoutPhoto implements IPh
         }
     }
 
+    private void setupEntities() {
+        if (initialEntities != null && !initialEntities.isEmpty()) {
+            ArrayList<VideoEditedInfo.MediaEntity> entities = initialEntities;
+            initialEntities = null;
+            for (int a = 0, N = entities.size(); a < N; a++) {
+                VideoEditedInfo.MediaEntity entity = entities.get(a);
+                EntityView view;
+                if (entity.type == VideoEditedInfo.MediaEntity.TYPE_STICKER) {
+                    StickerView stickerView = createSticker(entity.parentObject, entity.document, false);
+                    if ((entity.subType & 2) != 0) {
+                        stickerView.mirror();
+                    }
+                    view = stickerView;
+                    ViewGroup.LayoutParams layoutParams = view.getLayoutParams();
+                    layoutParams.width = entity.viewWidth;
+                    layoutParams.height = entity.viewHeight;
+                } else if (entity.type == VideoEditedInfo.MediaEntity.TYPE_TEXT) {
+                    TextPaintView textPaintView = createText(false);
+                    textPaintView.setType(entity.subType);
+                    textPaintView.setTypeface(entity.textTypeface);
+                    textPaintView.setBaseFontSize(entity.fontSize);
+                    SpannableString text = new SpannableString(entity.text);
+                    for (VideoEditedInfo.EmojiEntity e : entity.entities) {
+                        text.setSpan(new AnimatedEmojiSpan(e.document_id, 1f, textPaintView.getFontMetricsInt()), e.offset, e.offset + e.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+                    }
+                    CharSequence charSequence = text;
+                    charSequence = Emoji.replaceEmoji(charSequence, textPaintView.getFontMetricsInt(), (int) (textPaintView.getFontSize() * .8f), false);
+                    if (charSequence instanceof Spanned) {
+                        Emoji.EmojiSpan[] spans = ((Spanned) charSequence).getSpans(0, charSequence.length(), Emoji.EmojiSpan.class);
+                        if (spans != null) {
+                            for (int i = 0; i < spans.length; ++i) {
+                                spans[i].scale = .85f;
+                            }
+                        }
+                    }
+                    textPaintView.setText(charSequence);
+                    setTextAlignment(textPaintView, entity.textAlign);
+                    Swatch swatch = textPaintView.getSwatch();
+                    swatch.color = entity.color;
+                    textPaintView.setSwatch(swatch);
+                    view = textPaintView;
+                } else if (entity.type == VideoEditedInfo.MediaEntity.TYPE_PHOTO) {
+                    PhotoView photoView = createPhoto(entity.text, false);
+                    photoView.preloadSegmented(entity.segmentedPath);
+                    if ((entity.subType & 2) != 0) {
+                        photoView.mirror();
+                    }
+                    if ((entity.subType & 16) != 0) {
+                        photoView.toggleSegmented(false);
+                    }
+                    view = photoView;
+                    ViewGroup.LayoutParams layoutParams = view.getLayoutParams();
+                    layoutParams.width = entity.viewWidth;
+                    layoutParams.height = entity.viewHeight;
+                //} else if (entity.type == VideoEditedInfo.MediaEntity.TYPE_MESSAGE) {
+                //    MessageEntityView messageView = createMessage(entry.messageObjects, false, entry.isVideo);
+                //    view = messageView;
+                //    if (entity.viewWidth > 0 && entity.viewHeight > 0) {
+                //        ViewGroup.LayoutParams layoutParams = view.getLayoutParams();
+                //        layoutParams.width = entity.viewWidth;
+                //        layoutParams.height = entity.viewHeight;
+                //    }
+                } else if (entity.type == VideoEditedInfo.MediaEntity.TYPE_LOCATION) {
+                    LocationView locationView = createLocationSticker(entity.media, entity.mediaArea, false);
+                    if (entity.color != 0) {
+                        locationView.setColor(entity.color);
+                    }
+                    locationView.setType(entity.subType);
+                    view = locationView;
+                } else if (entity.type == VideoEditedInfo.MediaEntity.TYPE_WEATHER) {
+                    if (entity.weather == null) continue;
+                    WeatherView weatherView = createWeatherView(entity.weather, false);
+                    if (entity.color != 0) {
+                        weatherView.setColor(entity.color);
+                    }
+                    weatherView.setType(entity.subType);
+                    view = weatherView;
+                } else if (entity.type == VideoEditedInfo.MediaEntity.TYPE_LINK) {
+                    LinkView linkView = createLinkSticker(entity.linkSettings, entity.mediaArea, false);
+                    if (entity.color != 0) {
+                        linkView.setColor(entity.color);
+                    }
+                    if (linkView.marker.withPreview()) {
+                        linkView.marker.setPreviewType(entity.subType);
+                    }
+                    if (entity.subType == -1) {
+                        linkView.setType(3);
+                        linkView.marker.setupLayout();
+                        entity.viewWidth = linkView.marker.padx + (int) Math.ceil(linkView.marker.w) + linkView.marker.padx;
+                        entity.viewHeight = linkView.marker.pady + (int) Math.ceil(linkView.marker.h) + linkView.marker.pady;
+                        Point p = linkView.getPosition();
+                        p.y += .3f * h;
+                        linkView.setPosition(p);
+                        continue;
+                    } else {
+                        linkView.setType(entity.subType);
+                    }
+                    view = linkView;
+                } else if (entity.type == VideoEditedInfo.MediaEntity.TYPE_REACTION) {
+                    ReactionWidgetEntityView entityView = createReactionWidget(false);
+                    entityView.setCurrentReaction(ReactionsLayoutInBubble.VisibleReaction.fromTL(entity.mediaArea.reaction), false);
+                    if (entity.mediaArea.flipped) {
+                        entityView.mirror(false);
+                    }
+                    if (entity.mediaArea.dark) {
+                        entityView.changeStyle(false);
+                    }
+                    view = entityView;
+                //} else if (entity.type == VideoEditedInfo.MediaEntity.TYPE_ROUND) {
+                //    if (entry.round == null) {
+                //        continue;
+                //    }
+                //    RoundView roundView = createRound(entry.roundThumb, false);
+                //    onCreateRound(roundView);
+                //    if ((entity.subType & 2) != 0) {
+                //        roundView.mirror(false);
+                //    }
+                //    view = roundView;
+                } else {
+                    continue;
+                }
+                view.setX(entity.x * paintingSize.width - entity.viewWidth * (1 - entity.scale) / 2);
+                view.setY(entity.y * paintingSize.height - entity.viewHeight * (1 - entity.scale) / 2);
+                view.setPosition(new Point(view.getX() + entity.viewWidth / 2f, view.getY() + entity.viewHeight / 2f));
+                view.setScale(entity.scale);
+                view.setRotation((float) (-entity.rotation / Math.PI * 180));
+            }
+            entitiesView.setVisibility(View.VISIBLE);
+        }
+    }
+
     private boolean drawShadow;
 
     public void setDrawShadow(boolean drawShadow) {
@@ -968,7 +1100,7 @@ public class LPhotoPaintView extends SizeNotifierFrameLayoutPhoto implements IPh
     private void setNewColor(int color) {
         int wasColor = colorSwatch.color;
         colorSwatch.color = color;
-        setCurrentSwatch(colorSwatch, true);
+        setCurrentSwatch(colorSwatch, true, null, true);
 
         ValueAnimator animator = ValueAnimator.ofFloat(0, 1).setDuration(150);
         animator.addUpdateListener(animation -> {
@@ -1106,18 +1238,52 @@ public class LPhotoPaintView extends SizeNotifierFrameLayoutPhoto implements IPh
                     break;
             }
             textOptionsView.setAlignment(align);
-            textOptionsView.setTypeface(((TextPaintView) entityView).getTypeface().getKey());
+            PaintTypeface typeface = ((TextPaintView) entityView).getTypeface();
+            if (typeface != null) {
+                textOptionsView.setTypeface(typeface.getKey());
+            }
             textOptionsView.setOutlineType(((TextPaintView) entityView).getType(), true);
             overlayLayout.invalidate();
         }
 
         if (currentEntityView != null) {
             if (currentEntityView == entityView) {
-                if (!editingText) {
-                    showMenuForEntity(currentEntityView);
-                } else if (currentEntityView instanceof TextPaintView) {
-                    AndroidUtilities.showKeyboard(((TextPaintView) currentEntityView).getFocusedView());
-                    hideEmojiPopup(false);
+                if (!entityView.hadMultitouch()) {
+                    if (entityView instanceof LocationView) {
+                        LocationView view = (LocationView) entityView;
+                        view.setType((view.getType() + 1) % view.getTypesCount());
+                    } else if (entityView instanceof WeatherView) {
+                        WeatherView view = (WeatherView) entityView;
+                        view.setType((view.getType() + 1) % view.getTypesCount());
+                    } else if (entityView instanceof LinkView) {
+                        LinkView view = (LinkView) entityView;
+                        if (view.marker.withPreview()) {
+                            view.marker.setPreviewType(view.marker.getPreviewType() == 0 ? 1 : 0);
+                        } else {
+                            view.setType(view.getNextType());
+                        }
+                    } else if (!editingText) {
+                        if (entityView instanceof TextPaintView) {
+                            enteredThroughText = true;
+                            editSelectedTextEntity();
+                        } else if (entityView instanceof ReactionWidgetEntityView) {
+                            ReactionWidgetEntityView widgetEntityView = (ReactionWidgetEntityView) entityView;
+                            if (reactionLayoutShowing && reactionForEntity == entityView) {
+                                widgetEntityView.changeStyle(true);
+                            } else {
+                                showReactionsLayoutForView(widgetEntityView);
+                            }
+                        } else {
+                            showMenuForEntity(currentEntityView);
+                        }
+                    } else if (currentEntityView instanceof TextPaintView) {
+                        AndroidUtilities.showKeyboard(((TextPaintView) currentEntityView).getFocusedView());
+                        hideEmojiPopup(false);
+                    }
+                    // TODO investigate what it is
+                    //else if (currentEntityView instanceof RoundView) {
+                    //    onDeselectRound((RoundView) currentEntityView);
+                    //}
                 }
                 return true;
             } else {
@@ -1141,6 +1307,10 @@ public class LPhotoPaintView extends SizeNotifierFrameLayoutPhoto implements IPh
             if (TextUtils.isEmpty(textPaintView.getText())) {
                 removeEntity(oldEntity);
             }
+        }
+
+        if (oldEntity != currentEntityView && currentEntityView instanceof RoundView) {
+            onSelectRound((RoundView) currentEntityView);
         }
 
         if (currentEntityView != null) {
@@ -1190,13 +1360,210 @@ public class LPhotoPaintView extends SizeNotifierFrameLayoutPhoto implements IPh
             setCurrentSwatch(colorSwatch, true);
         }
 
+        // TODO investigate what it is
+        //updateTextDim();
         return changed;
+    }
+
+    // TODO check Paint impl
+    public void onSelectRound(RoundView roundView) {
+
     }
 
     private final AnimatedFloat shadowAlpha = new AnimatedFloat(this, 350, CubicBezierInterpolator.EASE_OUT_QUINT);
     private final Paint shadowPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final Paint clearPaint = new Paint(Paint.ANTI_ALIAS_FLAG); {
+    private final Paint clearPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+
+    {
         clearPaint.setXfermode(new PorterDuffXfermode(PorterDuff.Mode.CLEAR));
+    }
+
+    ReactionWidgetEntityView reactionForEntity;
+    private boolean reactionLayoutShowing;
+    public ReactionsContainerLayout reactionLayout;
+    private boolean invalidateReactionPosition;
+    private float reactionShowProgress;
+    float[] points = new float[2];
+    private FrameLayout parent;
+    private BlurringShader.BlurManager blurManager;
+
+    private void showReactionsLayoutForView(ReactionWidgetEntityView entityView) {
+        if (reactionForEntity != null && reactionForEntity != entityView && reactionLayout != null) {
+            ReactionsContainerLayout layout = reactionLayout;
+            layout.animate().alpha(0).setListener(new AnimatorListenerAdapter() {
+                @Override
+                public void onAnimationEnd(Animator animation) {
+                    AndroidUtilities.removeFromParent(layout);
+                }
+            });
+            reactionLayout = null;
+            reactionLayoutShowing = false;
+            reactionShowProgress = 0f;
+        }
+        if (reactionLayout == null) {
+            reactionLayout = new ReactionsContainerLayout(ReactionsContainerLayout.TYPE_STORY_LIKES, LaunchActivity.getLastFragment(), getContext(), currentAccount, new WrappedResourceProvider(new DarkThemeResourceProvider()) {
+                @Override
+                public void appendColors() {
+                    sparseIntArray.put(Theme.key_chat_emojiPanelBackground, ColorUtils.setAlphaComponent(Color.WHITE, 30));
+                }
+            });
+            BlurringShader.StoryBlurDrawer reactionBackgroundBlur = new BlurringShader.StoryBlurDrawer(blurManager, reactionLayout, BlurringShader.StoryBlurDrawer.BLUR_TYPE_BACKGROUND);
+            reactionLayout.setPadding(0, dp(22), 0, dp(22));
+            parent.addView(reactionLayout, LayoutHelper.createFrame(LayoutHelper.WRAP_CONTENT, 52 + 22 + 22, Gravity.TOP | Gravity.RIGHT, 0, 0, 12, 64));
+            Paint backgroundPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+            backgroundPaint.setColor(ColorUtils.setAlphaComponent(Color.BLACK, 120));
+            reactionLayout.setDelegate(new ReactionsContainerLayout.ReactionsContainerDelegate() {
+
+                BlurringShader.StoryBlurDrawer windowBackgroundBlur;
+
+                @Override
+                public boolean drawBackground() {
+                    return true;
+                }
+
+                private final Path clipPath = new Path();
+
+                @Override
+                public void drawRoundRect(Canvas canvas, RectF rect, float radius, float offsetX, float offsetY, int alpha, boolean isWindow) {
+                    if (!isWindow && blurManager != null && blurManager.hasRenderNode()) {
+                        final BlurringShader.StoryBlurDrawer drawer = isWindow ? windowBackgroundBlur : reactionBackgroundBlur;
+                        clipPath.rewind();
+                        clipPath.addRoundRect(rect, radius, radius, Path.Direction.CW);
+                        canvas.save();
+                        canvas.clipPath(clipPath);
+                        drawer.drawRect(canvas);
+                        backgroundPaint.setAlpha((int) (0.4f * alpha));
+                        canvas.drawPaint(backgroundPaint);
+                        canvas.restore();
+                    } else {
+                        Paint paint;
+                        if (isWindow) {
+                            if (windowBackgroundBlur == null) {
+                                windowBackgroundBlur = new BlurringShader.StoryBlurDrawer(blurManager, reactionLayout.getReactionsWindow().windowView, BlurringShader.StoryBlurDrawer.BLUR_TYPE_BACKGROUND);
+                            }
+                            windowBackgroundBlur.setBounds(-offsetX, -offsetY,
+                                    -offsetX + getMeasuredWidth(),
+                                    -offsetY + getMeasuredHeight());
+                            paint = windowBackgroundBlur.paint;
+                        } else {
+                            reactionBackgroundBlur.setBounds(-offsetX, -offsetY,
+                                    -offsetX + getMeasuredWidth(),
+                                    -offsetY + getMeasuredHeight());
+                            paint = reactionBackgroundBlur.paint;
+                        }
+                        paint.setAlpha(alpha);
+                        backgroundPaint.setAlpha((int) (0.4f * alpha));
+                        canvas.drawRoundRect(rect, radius, radius, paint);
+                        canvas.drawRoundRect(rect, radius, radius, backgroundPaint);
+                        //ReactionsContainerLayout.ReactionsContainerDelegate.super.drawRoundRect(canvas, rect, radius, offsetX, offsetY);
+                    }
+                }
+
+                @Override
+                public void onReactionClicked(View view, ReactionsLayoutInBubble.VisibleReaction visibleReaction, boolean longpress, boolean addToRecent) {
+                    if (reactionForEntity == null) {
+                        return;
+                    }
+                    reactionForEntity.setCurrentReaction(visibleReaction, true);
+                    showReactionsLayout(false);
+                }
+            });
+            reactionLayout.setMessage(null, null, true);
+        }
+        reactionLayout.setFragment(LaunchActivity.getLastFragment());
+        reactionForEntity = entityView;
+        showReactionsLayout(true);
+    }
+
+    public void showReactionsLayout(boolean show) {
+        if (reactionLayoutShowing == show || (!show && reactionLayout == null)) {
+            return;
+        }
+        reactionLayoutShowing = show;
+        if (show) {
+            reactionLayout.reset();
+            reactionLayout.setVisibility(View.VISIBLE);
+            reactionLayout.setSelectedReaction(reactionForEntity.getCurrentReaction());
+            reactionLayout.getParent().bringChildToFront(reactionLayout);
+        } else {
+            reactionForEntity = null;
+        }
+        if (show) {
+            invalidateReactionPosition = true;
+            parent.invalidate();
+            ValueAnimator valueAnimator = ValueAnimator.ofFloat(reactionShowProgress, show ? 1f : 0f);
+            reactionLayout.setTransitionProgress(reactionShowProgress);
+            valueAnimator.addUpdateListener(animation -> {
+                reactionShowProgress = (float) animation.getAnimatedValue();
+                reactionLayout.setTransitionProgress(reactionShowProgress);
+            });
+            valueAnimator.addListener(new AnimatorListenerAdapter() {
+                @Override
+                public void onAnimationEnd(Animator animation) {
+                    if (!show) {
+                        reactionLayout.setVisibility(View.GONE);
+                        reactionLayout.reset();
+                    }
+                }
+            });
+            valueAnimator.setDuration(200);
+            valueAnimator.setInterpolator(CubicBezierInterpolator.EASE_OUT);
+            valueAnimator.start();
+        } else {
+            if (reactionLayout.getReactionsWindow() != null) {
+                reactionLayout.getReactionsWindow().dismissWithAlpha();
+            }
+            reactionLayout.animate().alpha(0).setDuration(150).setListener(new AnimatorListenerAdapter() {
+                @Override
+                public void onAnimationEnd(Animator animation) {
+                    reactionShowProgress = 0;
+                    reactionLayout.setAlpha(1f);
+                    reactionLayout.setVisibility(View.GONE);
+                    reactionLayout.reset();
+                }
+            }).start();
+        }
+    }
+
+    public void onParentPreDraw() {
+        if (invalidateReactionPosition) {
+            invalidateReactionPosition = false;
+            if (reactionLayout != null && reactionForEntity != null) {
+                points[0] = reactionForEntity.getMeasuredWidth() / 2f;
+                points[1] = reactionForEntity.getMeasuredHeight() / 2f;
+                reactionForEntity.getMatrix().mapPoints(points);
+                float scaleY = (float) ((View) reactionForEntity.getParent()).getMeasuredHeight() / (float) renderView.getMeasuredHeight();
+                float minY = (points[1] - reactionForEntity.getMeasuredHeight() / 2f * reactionForEntity.getScaleX()) / scaleY;
+                float maxY = (points[1] + reactionForEntity.getMeasuredHeight() / 2f * reactionForEntity.getScaleX()) / scaleY;
+                if (minY < dp(120) && maxY > parent.getMeasuredHeight() - dp(200)) {
+                    reactionLayout.setTop(false);
+                    reactionLayout.setTranslationY(dp(120) - reactionLayout.getMeasuredHeight() + dp(16));
+                } else if (minY < dp(120)) {
+                    reactionLayout.setTop(true);
+                    reactionLayout.setTranslationY(maxY + reactionForEntity.getMeasuredHeight() / 2f);
+                } else {
+                    reactionLayout.setTop(false);
+                    reactionLayout.setTranslationY(minY - reactionForEntity.getMeasuredHeight() / 2f + dp(16));
+                }
+                if (points[0] < getMeasuredWidth() / 2f) {
+                    reactionLayout.setMirrorX(true);
+                    float startX = points[0] - reactionForEntity.getMeasuredHeight() / 2f;
+                    float k = reactionLayout.getX() + reactionLayout.getMeasuredWidth() / 2f - startX;
+                    if (k > 0) {
+                        reactionLayout.setBubbleOffset((reactionLayout.getMeasuredWidth() / 2f - k) / 2);
+                    }
+                } else {
+                    float endX = points[0] + reactionForEntity.getMeasuredHeight() / 2f;
+                    float k = reactionLayout.getX() + reactionLayout.getMeasuredWidth() / 2f - endX;
+                    if (k < 0) {
+                        reactionLayout.setBubbleOffset(-(reactionLayout.getMeasuredWidth() / 2f + k) / 2);
+                    }
+                    reactionLayout.setMirrorX(false);
+                }
+
+                reactionLayout.setTranslationX((parent.getMeasuredWidth() - reactionLayout.getMeasuredWidth()) / 2f);
+            }
+        }
     }
 
     @Override
@@ -1326,6 +1693,7 @@ public class LPhotoPaintView extends SizeNotifierFrameLayoutPhoto implements IPh
         textTab.setOnClickListener(v -> {
             switchTab(2);
             if (!(currentEntityView instanceof TextPaintView)) {
+                forceChanges = true;
                 createText(true);
             }
         });
@@ -1419,6 +1787,8 @@ public class LPhotoPaintView extends SizeNotifierFrameLayoutPhoto implements IPh
         tabsSelectionAnimator.start();
     }
 
+    private EmojiBottomSheet emojiPopup;
+
     private void openStickersView() {
         final int wasSelectedIndex = tabsSelectedIndex;
         switchTab(1);
@@ -1427,35 +1797,182 @@ public class LPhotoPaintView extends SizeNotifierFrameLayoutPhoto implements IPh
                 detectFaces();
             }
         }, 350);
-        EmojiBottomSheet emojiBottomSheet = new EmojiBottomSheet(getContext(), false, resourcesProvider, false) {
+        EmojiBottomSheet alert = emojiPopup = new EmojiBottomSheet(getContext(), false, resourcesProvider, false) {
             @Override
-            public boolean canShowWidget(Integer id) {
-                return id == WIDGET_PHOTO;
+            public void onDismissAnimationStart() {
+                super.onDismissAnimationStart();
+                switchTab(wasSelectedIndex);
+            }
+
+            @Override
+            public boolean canShowWidget(Integer widgetId) {
+                if (widgetId == WIDGET_WEATHER) {
+                    boolean hasWeather = false;
+                    for (int i = 0; i < entitiesView.getChildCount(); ++i) {
+                        if (entitiesView.getChildAt(i) instanceof WeatherView) {
+                            hasWeather = true;
+                            break;
+                        }
+                    }
+                    return !hasWeather;
+                }
+                return true;
+            }
+
+            @Override
+            public boolean canClickWidget(Integer widgetId) {
+                if (widgetId == EmojiBottomSheet.WIDGET_REACTION) {
+                    int widgetsCount = 0;
+                    for (int i = 0; i < entitiesView.getChildCount(); i++) {
+                        if (entitiesView.getChildAt(i) instanceof ReactionWidgetEntityView) {
+                            widgetsCount++;
+                        }
+                    }
+                    // Intentionally reuse storiesSuggestedReactionsLimitDefault and storiesSuggestedReactionsLimitPremium here
+                    // Can be changed to different variables if needed
+                    if (widgetsCount >= MessagesController.getInstance(currentAccount).storiesSuggestedReactionsLimitDefault && !UserConfig.getInstance(currentAccount).isPremium()) {
+                        showPremiumBulletin(LocaleController.formatPluralString("StoryPremiumWidgets2", MessagesController.getInstance(currentAccount).storiesSuggestedReactionsLimitPremium));
+                        return false;
+                    }
+                    if (widgetsCount >= MessagesController.getInstance(currentAccount).storiesSuggestedReactionsLimitPremium) {
+                        container.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);
+                        BulletinFactory.of(container, resourcesProvider).createSimpleBulletin(R.raw.chats_infotip,
+                                getString("LimitReached", R.string.LimitReached),
+                                LocaleController.formatPluralString("StoryReactionsWidgetLimit2", MessagesController.getInstance(currentAccount).storiesSuggestedReactionsLimitPremium)
+                        ).show(true);
+                        return false;
+                    }
+                }
+                return true;
+            }
+
+            @Override
+            protected boolean checkAudioPermission(Runnable granted) {
+                //TODO check
+                //return LPhotoPaintView.this.checkAudioPermission(granted);
+                return true;
             }
         };
-        emojiBottomSheet.whenDocumentSelected((parentObject, document, isGif) -> {
-            StickerView stickerView = createSticker(parentObject, document, true);
+        // TODO check if it is needed or not
+        //alert.setBlurDelegate(parent::drawBlurBitmap);
+        boolean[] closing = new boolean[1];
+        closing[0] = true;
+        alert.setOnDismissListener(di -> {
+            emojiPopup = null;
+            if (closing[0]) {
+                onOpenCloseStickersAlert(false);
+            }
+            switchTab(wasSelectedIndex);
+        });
+        alert.whenDocumentSelected((parentObject, document, isGif) -> {
+            forceChanges = true;
+            StickerView stickerView = createSticker(parentObject, document, false);
             if (isGif) {
                 stickerView.setScale(1.5f);
             }
+            appearAnimation(stickerView);
             return true;
         });
-        emojiBottomSheet.whenWidgetSelected(widget -> {
-            if (widget == EmojiBottomSheet.WIDGET_PHOTO) {
-                showPhotoAlert();
+
+        alert.whenWidgetSelected(widgetId -> {
+            if (widgetId == EmojiBottomSheet.WIDGET_LOCATION) {
+                closing[0] = false;
+                showLocationAlert(null, (location, area) -> appearAnimation(createLocationSticker(location, area, false)));
+                return true;
+            } else if (widgetId == EmojiBottomSheet.WIDGET_WEATHER) {
+                closing[0] = false;
+                Weather.fetch(true, weather -> {
+                    if (weather != null) {
+                        alert.dismiss();
+                        onOpenCloseStickersAlert(false);
+                        appearAnimation(createWeatherView(weather, false));
+                    }
+                });
+                return false;
+            } else if (widgetId == EmojiBottomSheet.WIDGET_PHOTO) {
+                alert.dismiss();
+                onGalleryClick();
+                return true;
+            } else if (widgetId == EmojiBottomSheet.WIDGET_AUDIO) {
+                closing[0] = false;
+                showAudioAlert(this::onAudioSelect);
+                return true;
+            } else if (widgetId == EmojiBottomSheet.WIDGET_REACTION) {
+                forceChanges = true;
+                ReactionWidgetEntityView reactionWidget = createReactionWidget(true);
+                appearAnimation(reactionWidget);
+                return true;
+            } else if (widgetId == EmojiBottomSheet.WIDGET_LINK) {
+                if (!UserConfig.getInstance(currentAccount).isPremium()) {
+                    alert.container.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);
+                    BulletinFactory.of(alert.container, resourcesProvider).createSimpleBulletin(R.raw.star_premium_2,
+                            // Text should be changed here to chat related. Change once you align on it.
+                            AndroidUtilities.premiumText(getString(R.string.StoryLinkPremium), () -> {
+                                BaseFragment fragment = new BaseFragment() {
+                                    @Override
+                                    public int getCurrentAccount() {
+                                        return currentAccount;
+                                    }
+
+                                    @Override
+                                    public Context getContext() {
+                                        return LPhotoPaintView.this.getContext();
+                                    }
+
+                                    @Override
+                                    public Activity getParentActivity() {
+                                        return AndroidUtilities.findActivity(LPhotoPaintView.this.getContext());
+                                    }
+
+                                    @Override
+                                    public Theme.ResourcesProvider getResourceProvider() {
+                                        return LPhotoPaintView.this.resourcesProvider;
+                                    }
+
+                                    @Override
+                                    public boolean presentFragment(BaseFragment fragment) {
+                                        BaseFragment fragment1 = LaunchActivity.getLastFragment();
+                                        if (fragment1 == null) return false;
+                                        BaseFragment.BottomSheetParams bottomSheetParams = new BaseFragment.BottomSheetParams();
+                                        bottomSheetParams.transitionFromLeft = true;
+                                        bottomSheetParams.allowNestedScroll = false;
+                                        fragment1.showAsSheet(fragment, bottomSheetParams);
+                                        return true;
+                                    }
+                                };
+                                new PremiumFeatureBottomSheet(fragment, PremiumPreviewFragment.PREMIUM_FEATURE_STORIES, true).show();
+                            })
+                    ).show(true);
+                    return false;
+                }
+
+                int linksCount = 0;
+                for (int i = 0; i < entitiesView.getChildCount(); ++i) {
+                    if (entitiesView.getChildAt(i) instanceof LinkView)
+                        linksCount++;
+                }
+
+                final int limit = 3;
+                if (linksCount >= limit) {
+                    BulletinFactory.of(alert.container, resourcesProvider).createSimpleBulletin(R.raw.linkbroken, getString(R.string.StoryLinkLimitTitle), formatPluralString("StoryLinkLimitMessage", limit)).show(true);
+                    return false;
+                }
+
+                closing[0] = false;
+                showLinkAlert(null);
+                alert.dismiss();
+
+                return true;
             }
-            return true;
+            return false;
         });
-        emojiBottomSheet.setOnDismissListener(di -> {
-            onOpenCloseStickersAlert(false);
-            switchTab(wasSelectedIndex);
-        });
-        emojiBottomSheet.show();
+        alert.setImageReceiverNumLevel(0, 4);
+        alert.show();
         onOpenCloseStickersAlert(true);
     }
 
-    private void showPhotoAlert() {
-        ChatAttachAlert chatAttachAlert = new ChatAttachAlert(getContext(), new ChatActivity(null) {
+    private void showLocationAlert(LocationView editingLocationView, Utilities.Callback2<TLRPC.MessageMedia, TL_stories.MediaArea> onLocationSelected) {
+        ChatAttachAlert locationAlert = new ChatAttachAlert(getContext(), new ChatActivity(null) {
             @Override
             public long getDialogId() {
                 return 0;
@@ -1486,46 +2003,367 @@ public class LPhotoPaintView extends SizeNotifierFrameLayoutPhoto implements IPh
                 return false;
             }
 
-        }, false, false, false, resourcesProvider);
-        chatAttachAlert.drawNavigationBar = true;
-        chatAttachAlert.setupPhotoPicker(LocaleController.getString(R.string.AddImage));
-        chatAttachAlert.setDelegate(new ChatAttachAlert.ChatAttachViewDelegate() {
-            long start;
             @Override
-            public boolean selectItemOnClicking() {
-                start = System.currentTimeMillis();
+            public void didSelectLocation(TLRPC.MessageMedia location, int locationType, boolean notify, int scheduleDate) {
+                TL_stories.MediaArea mediaArea;
+                if (location instanceof TLRPC.TL_messageMediaGeo) {
+                    TL_stories.TL_mediaAreaGeoPoint areaGeo = new TL_stories.TL_mediaAreaGeoPoint();
+                    areaGeo.geo = location.geo;
+                    mediaArea = areaGeo;
+                } else if (location instanceof TLRPC.TL_messageMediaVenue) {
+                    TLRPC.TL_messageMediaVenue loc = (TLRPC.TL_messageMediaVenue) location;
+                    if (loc.query_id == -1 || loc.query_id == -2) {
+                        TL_stories.TL_mediaAreaGeoPoint areaGeo = new TL_stories.TL_mediaAreaGeoPoint();
+                        areaGeo.geo = location.geo;
+                        areaGeo.address = ((TLRPC.TL_messageMediaVenue) location).geoAddress;
+                        if (areaGeo.address != null) {
+                            areaGeo.flags |= 1;
+                        }
+                        Utilities.globalQueue.postRunnable(() -> {
+                            try {
+                                Geocoder gcd = new Geocoder(ApplicationLoader.applicationContext, LocaleController.getInstance().getCurrentLocale());
+                                List<Address> addresses = gcd.getFromLocationName(location.title, 1);
+                                if (addresses.size() <= 0) {
+                                    return;
+                                }
+                                areaGeo.geo.lat = addresses.get(0).getLatitude();
+                                areaGeo.geo._long = addresses.get(0).getLongitude();
+                            } catch (Exception ignore) {
+                            }
+                        });
+                        mediaArea = areaGeo;
+                    } else {
+                        TL_stories.TL_inputMediaAreaVenue areaVenue = new TL_stories.TL_inputMediaAreaVenue();
+                        areaVenue.query_id = ((TLRPC.TL_messageMediaVenue) location).query_id;
+                        areaVenue.result_id = ((TLRPC.TL_messageMediaVenue) location).result_id;
+                        mediaArea = areaVenue;
+                    }
+                } else {
+                    return;
+                }
+                onLocationSelected.run(location, mediaArea);
+            }
+        }, false, true, false, resourcesProvider);
+        locationAlert.setDelegate(new ChatAttachAlert.ChatAttachViewDelegate() {
+            @Override
+            public void didPressedButton(int button, boolean arg, boolean notify, int scheduleDate, long effectId, boolean invertMedia, boolean forceDocument) {
+
+            }
+        });
+        //if (editingLocationView != null && editingLocationView.location != null && editingLocationView.location.geo != null) {
+        //    locationAlert.setStoryLocationPicker(editingLocationView.location.geo.lat, editingLocationView.location.geo._long);
+        //} else if (fileFromGallery) {
+        //    locationAlert.setStoryLocationPicker(isVideo, file);
+        //} else {
+        //    locationAlert.setStoryLocationPicker();
+        //}
+
+        // TODO uncomment top and remove bot region
+        locationAlert.setStoryLocationPicker();
+        // TODO end region
+        locationAlert.setOnDismissListener(di -> {
+            onOpenCloseStickersAlert(false);
+        });
+        locationAlert.init();
+        locationAlert.show();
+    }
+
+    private LocationView createLocationSticker(TLRPC.MessageMedia location, TL_stories.MediaArea mediaArea, boolean select) {
+        onTextAdd();
+        forceChanges = true;
+
+        Size paintingSize = getPaintingSize();
+        Point position = startPositionRelativeToEntity(null);
+        float w = entitiesView.getMeasuredWidth() <= 0 ? this.w : entitiesView.getMeasuredWidth();
+        int maxWidth = (int) w - dp(14 + 26 + 18);
+        LocationView view = new LocationView(getContext(), position, currentAccount, location, mediaArea, w / 240f, maxWidth);
+        if (position.x == entitiesView.getMeasuredWidth() / 2f) {
+            view.setStickyX(EntityView.STICKY_CENTER);
+        }
+        if (position.y == entitiesView.getMeasuredHeight() / 2f) {
+            view.setStickyY(EntityView.STICKY_CENTER);
+        }
+        if (colorSwatch != null && colorSwatch.color != 0xFFFF453A) {
+            view.setColor(colorSwatch.color);
+        }
+        view.setDelegate(this);
+        view.setMaxWidth(maxWidth);
+        entitiesView.addView(view, LayoutHelper.createFrame(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT));
+        checkEntitiesIsVideo();
+        if (currentCropState != null) {
+            view.scale(1.0f / currentCropState.cropScale);
+            view.rotate(-(currentCropState.transformRotation + currentCropState.cropRotate));
+        }
+
+        if (select) {
+            registerRemovalUndo(view);
+            selectEntity(view, false);
+        }
+        return view;
+    }
+
+    private WeatherView createWeatherView(Weather.State weather, boolean select) {
+        onTextAdd();
+
+        forceChanges = true;
+
+        Size paintingSize = getPaintingSize();
+        Point position = startPositionRelativeToEntity(null);
+        float w = entitiesView.getMeasuredWidth() <= 0 ? this.w : entitiesView.getMeasuredWidth();
+        int maxWidth = (int) w - dp(14 + 26 + 18);
+        WeatherView view = new WeatherView(getContext(), position, currentAccount, weather, w / 240f, maxWidth);
+        if (position.x == entitiesView.getMeasuredWidth() / 2f) {
+            view.setStickyX(EntityView.STICKY_CENTER);
+        }
+        if (position.y == entitiesView.getMeasuredHeight() / 2f) {
+            view.setStickyY(EntityView.STICKY_CENTER);
+        }
+        if (colorSwatch != null && colorSwatch.color != 0xFFFF453A) {
+            view.setColor(colorSwatch.color);
+        }
+        view.setDelegate(this);
+        view.setMaxWidth(maxWidth);
+        entitiesView.addView(view, LayoutHelper.createFrame(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT));
+        checkEntitiesIsVideo();
+        if (currentCropState != null) {
+            view.scale(1.0f / currentCropState.cropScale);
+            view.rotate(-(currentCropState.transformRotation + currentCropState.cropRotate));
+        }
+
+        if (select) {
+            registerRemovalUndo(view);
+            selectEntity(view, false);
+        }
+        return view;
+    }
+
+    private void checkEntitiesIsVideo() {
+        final boolean isVideo = wouldBeVideo();
+        for (int i = 0; i < entitiesView.getChildCount(); ++i) {
+            View child = entitiesView.getChildAt(i);
+            if (child instanceof EntityView) {
+                ((EntityView) child).setIsVideo(isVideo);
+            }
+        }
+    }
+    private boolean isVideo;
+    private boolean hasAudio;
+    // TODO check usages
+    public void setHasAudio(boolean audio) {
+        if (audio != hasAudio) {
+            hasAudio = audio;
+            checkEntitiesIsVideo();
+        }
+    }
+
+    public boolean wouldBeVideo() {
+        if (isVideo || hasAudio) {
+            return true;
+        }
+        for (int i = 0; i < entitiesView.getChildCount(); ++i) {
+            View child = entitiesView.getChildAt(i);
+            if (child instanceof TextPaintView) {
+                TextPaintView view = (TextPaintView) child;
+                CharSequence text = view.getText();
+                if (text instanceof Spanned) {
+                    Spanned spanned = (Spanned) text;
+                    AnimatedEmojiSpan[] spans = spanned.getSpans(0, text.length(), AnimatedEmojiSpan.class);
+                    for (int j = 0; j < spans.length; ++j) {
+                        AnimatedEmojiSpan span = spans[j];
+                        TLRPC.Document document = span.document;
+                        if (document == null) {
+                            document = AnimatedEmojiDrawable.findDocument(currentAccount, span.getDocumentId());
+                        }
+                        if (document != null) {
+                            AnimatedEmojiDrawable.getDocumentFetcher(currentAccount).putDocument(document);
+                        }
+                        if (StoryEntry.isAnimated(document, FileLoader.getInstance(currentAccount).getPathToAttach(document, true).getAbsolutePath())) {
+                            return true;
+                        }
+                    }
+                }
+            } else if (child instanceof StickerView) {
+                TLRPC.Document document = ((StickerView) child).getSticker();
+                if (StoryEntry.isAnimated(document, FileLoader.getInstance(currentAccount).getPathToAttach(document, true).getAbsolutePath())) {
+                    return true;
+                }
+            } else if (child instanceof RoundView) {
                 return true;
+            }
+        }
+        return false;
+    }
+
+    private void showLinkAlert(LinkView editingLinkView) {
+        StoryLinkSheet sheet = new StoryLinkSheet(getContext(), resourcesProvider, parent, media -> {
+            if (editingLinkView != null) {
+                editingLinkView.setLink(currentAccount, media, null);
+                appearAnimation(editingLinkView);
+            } else {
+                appearAnimation(createLinkSticker(media, null, false));
+            }
+        });
+        if (editingLinkView != null) {
+            sheet.set(editingLinkView.link);
+        }
+        sheet.setOnDismissListener(di -> {
+            onOpenCloseStickersAlert(false);
+        });
+        sheet.show();
+        onOpenCloseStickersAlert(true);
+    }
+
+    private LinkView createLinkSticker(LinkPreview.WebPagePreview link, TL_stories.MediaArea mediaArea, boolean select) {
+        onTextAdd();
+
+        forceChanges = true;
+
+        Size paintingSize = getPaintingSize();
+        Point position = startPositionRelativeToEntity(null);
+        float w = entitiesView.getMeasuredWidth() <= 0 ? this.w : entitiesView.getMeasuredWidth();
+        int maxWidth = (int) w - dp(14 + 26 + 18);
+        LinkView view = new LinkView(getContext(), position, currentAccount, link, mediaArea, w / 360f, maxWidth, 3);
+        if (position.x == entitiesView.getMeasuredWidth() / 2f) {
+            view.setStickyX(EntityView.STICKY_CENTER);
+        }
+        if (position.y == entitiesView.getMeasuredHeight() / 2f) {
+            view.setStickyY(EntityView.STICKY_CENTER);
+        }
+        if (colorSwatch != null && colorSwatch.color != 0xFFFF453A) {
+            view.setColor(colorSwatch.color);
+        }
+        view.setDelegate(this);
+        view.setMaxWidth(maxWidth);
+        entitiesView.addView(view, LayoutHelper.createFrame(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT));
+        checkEntitiesIsVideo();
+        if (currentCropState != null) {
+            view.scale(1.0f / currentCropState.cropScale);
+            view.rotate(-(currentCropState.transformRotation + currentCropState.cropRotate));
+        }
+
+        if (select) {
+            registerRemovalUndo(view);
+            selectEntity(view, false);
+        }
+        return view;
+    }
+
+    // TODO investigate what is it from PaintView
+    public void openText() {
+        switchTab(2);
+        forceChanges = true;
+        createText(true);
+    }
+
+    protected void onGalleryClick() {
+    }
+
+    private void showAudioAlert(Utilities.Callback<MessageObject> onAudioSelected) {
+        final ChatAttachAlert[] audioAlert = new ChatAttachAlert[1];
+        ChatActivity chatActivity = new ChatActivity(null) {
+            @Override
+            public long getDialogId() {
+                return 0;
             }
 
             @Override
-            public void didPressedButton(int button, boolean arg, boolean notify, int scheduleDate, long effectId, boolean invertMedia, boolean forceDocument) {
-                try {
-                    HashMap<Object, Object> photos = chatAttachAlert.getPhotoLayout().getSelectedPhotos();
-                    if (!photos.isEmpty()) {
-                        MediaController.PhotoEntry entry = (MediaController.PhotoEntry) photos.values().iterator().next();
-                        String path;
-                        if (entry.imagePath != null) {
-                            path = entry.imagePath;
-                        } else {
-                            path = entry.path;
-                        }
-                        appearAnimation(createPhoto(path, true));
-                        chatAttachAlert.dismiss();
-                    }
-                } catch (Throwable e) {
-                    FileLog.e(e);
+            public Theme.ResourcesProvider getResourceProvider() {
+                return resourcesProvider;
+            }
+
+            @Override
+            public boolean isKeyboardVisible() {
+                return false;
+            }
+
+            @Override
+            public Activity getParentActivity() {
+                return AndroidUtilities.findActivity(LPhotoPaintView.this.getContext());
+            }
+
+            @Override
+            public TLRPC.User getCurrentUser() {
+                return UserConfig.getInstance(currentAccount).getCurrentUser();
+            }
+
+            @Override
+            public boolean isLightStatusBar() {
+                return false;
+            }
+
+            @Override
+            public void sendAudio(ArrayList<MessageObject> audios, CharSequence caption, boolean notify, int scheduleDate, long effectId, boolean invertMedia) {
+                if (audios.isEmpty()) {
+                    return;
+                }
+                MessageObject msg = audios.get(0);
+                if (msg == null) {
+                    return;
+                }
+                onAudioSelected.run(msg);
+                if (audioAlert[0] != null) {
+                    audioAlert[0].dismiss();
                 }
             }
+        };
+        audioAlert[0] = new ChatAttachAlert(getContext(), chatActivity, false, true, false, resourcesProvider);
+        audioAlert[0].setDelegate(new ChatAttachAlert.ChatAttachViewDelegate() {
+            @Override
+            public void didPressedButton(int button, boolean arg, boolean notify, int scheduleDate, long effectId, boolean invertMedia, boolean forceDocument) {
+
+            }
         });
-        chatAttachAlert.setOnDismissListener(dialog -> {
-            MediaController.forceBroadcastNewPhotos = false;
+        audioAlert[0].setOnDismissListener(di -> {
+            onOpenCloseStickersAlert(false);
         });
-        chatAttachAlert.setMaxSelectedPhotos(1, false);
-        chatAttachAlert.init();
-        MediaController.forceBroadcastNewPhotos = true;
-        chatAttachAlert.getPhotoLayout().loadGalleryPhotos();
-        chatAttachAlert.show();
+        audioAlert[0].setStoryAudioPicker();
+        audioAlert[0].init();
+        audioAlert[0].show();
     }
+
+    // TODO implement see paintview for reference
+    protected void onAudioSelect(MessageObject document) {
+    }
+
+    // TODO implement see paintview for reference
+    protected void dismiss() {
+
+    }
+
+    private ReactionWidgetEntityView createReactionWidget(boolean select) {
+        Size size = new Size(dp(106), dp(106));
+        Point position = centerPositionForEntity();
+        boolean goodPosition;
+        //compute best position
+        if (entitiesView.getMeasuredHeight() > 0) {
+            do {
+                goodPosition = true;
+                for (int i = 0; i < entitiesView.getChildCount(); i++) {
+                    View child = entitiesView.getChildAt(i);
+                    float cx = child.getX() + child.getMeasuredWidth() / 2f;
+                    float cy = child.getY() + child.getMeasuredHeight() / 2f;
+                    if (MathUtils.distance(position.x, position.y, cx, cy) < dp(6)) {
+                        position.x += entitiesView.getMeasuredWidth() * 0.05f;
+                        position.y += entitiesView.getMeasuredHeight() * 0.05f;
+                        position.x = Utilities.clamp(position.x, entitiesView.getMeasuredWidth(), 0);
+                        position.y = Utilities.clamp(position.y, entitiesView.getMeasuredHeight(), 0);
+                        goodPosition = false;
+                        break;
+                    }
+                }
+            } while (!goodPosition);
+        }
+        ReactionWidgetEntityView view = new ReactionWidgetEntityView(getContext(), position, size);
+        view.setDelegate(this);
+        entitiesView.addView(view);
+        checkEntitiesIsVideo();
+        if (select) {
+            registerRemovalUndo(view);
+            selectEntity(view);
+        }
+        return view;
+    }
+
 
     public void appearAnimation(View view) {
         float scaleX = view.getScaleX(), scaleY = view.getScaleY();
@@ -1541,6 +2379,7 @@ public class LPhotoPaintView extends SizeNotifierFrameLayoutPhoto implements IPh
     }
 
     public PhotoView createPhoto(String path, boolean select) {
+        forceChanges = true;
         Size size = basePhotoSize(path);
         Pair<Integer, Integer> orientation = AndroidUtilities.getImageOrientation(path);
         if ((orientation.first / 90 % 2) == 1) {
@@ -1559,6 +2398,64 @@ public class LPhotoPaintView extends SizeNotifierFrameLayoutPhoto implements IPh
             selectEntity(view);
         }
         return view;
+    }
+
+    // TODO investigate what it is
+    //private boolean creatingNewRound;
+    //public RoundView createRound(String thumbPath, boolean select) {
+    //    forceChanges = true;
+    //    creatingNewRound = true;
+    //    deleteRound();
+    //    int w = entitiesView.getMeasuredWidth(), h = entitiesView.getMeasuredHeight();
+    //    if (w <= 0) w = this.w;
+    //    if (h <= 0) h = this.h;
+    //    float side = (float) Math.floor(w * 0.43f);
+    //    Size size = new Size(side, side);
+    //    float x = w - size.width / 2f - dp(16);
+    //    float y = dp(72) + size.height / 2f;
+    //    RoundView view = new RoundView(getContext(), new Point(x, y), 0, 1f, size, thumbPath);
+    //    view.setDelegate(this);
+    //    entitiesView.addView(view);
+    //    checkEntitiesIsVideo();
+    //    if (select) {
+    //        registerRemovalUndo(view);
+    //        post(() -> selectEntity(view));
+    //    }
+    //    creatingNewRound = false;
+    //    return view;
+    //}
+
+    // TODO investigate what it is
+    //public MessageEntityView createMessage(ArrayList<MessageObject> messageObjects, boolean select, boolean hasVideo) {
+    //    forceChanges = true;
+    //    MessageEntityView view = new MessageEntityView(getContext(), centerPositionForEntity(), 0, 1f, messageObjects, blurManager, hasVideo, videoTextureHolder) {
+    //        @Override
+    //        public boolean drawForBitmap() {
+    //            return drawForThemeToggle;
+    //        }
+    //    };
+    //    view.setDelegate(this);
+    //    entitiesView.addView(view);
+    //    checkEntitiesIsVideo();
+    //    if (select) {
+    //        registerRemovalUndo(view);
+    //        selectEntity(view);
+    //    }
+    //    return view;
+    //}
+
+    @Override
+    public void onEntityDragStart() {
+        if (reactionLayout != null) {
+            showReactionsLayout(false);
+        }
+    }
+
+    @Override
+    public void onEntityDragEnd(boolean delete) {
+        // TODO investigate what it is
+        //updatePreviewViewTranslationY();
+        forceChanges = true;
     }
 
     private Size basePhotoSize(String path) {
@@ -1580,9 +2477,11 @@ public class LPhotoPaintView extends SizeNotifierFrameLayoutPhoto implements IPh
         }
     }
 
-    protected void onOpenCloseStickersAlert(boolean open) {}
+    protected void onOpenCloseStickersAlert(boolean open) {
+    }
 
-    protected void onTextAdd() {}
+    protected void onTextAdd() {
+    }
 
     @Override
     public void requestLayout() {
@@ -1741,10 +2640,14 @@ public class LPhotoPaintView extends SizeNotifierFrameLayoutPhoto implements IPh
 
     private int getFrameRotation() {
         switch (originalBitmapRotation) {
-            case 90: return Frame.ROTATION_90;
-            case 180: return Frame.ROTATION_180;
-            case 270: return Frame.ROTATION_270;
-            default: return Frame.ROTATION_0;
+            case 90:
+                return Frame.ROTATION_90;
+            case 180:
+                return Frame.ROTATION_180;
+            case 270:
+                return Frame.ROTATION_270;
+            default:
+                return Frame.ROTATION_0;
         }
     }
 
@@ -1852,16 +2755,37 @@ public class LPhotoPaintView extends SizeNotifierFrameLayoutPhoto implements IPh
         toolsPaint.setColor(0xff191919);
     }
 
+    private boolean forceChanges;
+
+    //TODO compare usages with paint view
     @Override
     public boolean hasChanges() {
-        return undoStore.canUndo();
+        return undoStore.canUndo() || forceChanges;
     }
 
     @Override
     public Bitmap getBitmap(ArrayList<VideoEditedInfo.MediaEntity> entities, Bitmap[] thumbBitmap) {
-        Bitmap bitmap = renderView.getResultBitmap(false, false);
+        return getBitmap(entities, (int) paintingSize.width, (int) paintingSize.height, true, true, false, false, null);
+    }
+
+    public Bitmap getBitmap(ArrayList<VideoEditedInfo.MediaEntity> entities, int resultWidth, int resultHeight, boolean drawPaint, boolean drawEntities, boolean drawMessage, boolean drawBlur, StoryEntry entry) {
+        Bitmap bitmap;
+        if (drawPaint) {
+            bitmap = renderView.getResultBitmap(false, drawBlur);
+        } else if (drawMessage) {
+            bitmap = Bitmap.createBitmap(Math.max(1, entitiesView.getMeasuredWidth()), Math.max(1, entitiesView.getMeasuredHeight()), Bitmap.Config.ARGB_8888);
+        } else if (drawEntities) {
+            Bitmap ref = renderView.getResultBitmap(false, false);
+            if (ref != null) {
+                bitmap = Bitmap.createBitmap(ref.getWidth(), ref.getHeight(), Bitmap.Config.ARGB_8888);
+            } else {
+                bitmap = null;
+            }
+        } else {
+            bitmap = null;
+        }
         lcm = BigInteger.ONE;
-        if (bitmap != null && entitiesView.entitiesCount() > 0) {
+        if (entitiesView.entitiesCount() > 0) {
             Canvas canvas;
             Canvas thumbCanvas = null;
             int count = entitiesView.getChildCount();
@@ -1873,10 +2797,11 @@ public class LPhotoPaintView extends SizeNotifierFrameLayoutPhoto implements IPh
                 }
                 EntityView entity = (EntityView) v;
                 Point position = entity.getPosition();
+                boolean drawThisEntity = true;
+                VideoEditedInfo.MediaEntity mediaEntity = new VideoEditedInfo.MediaEntity();
                 if (entities != null) {
-                    VideoEditedInfo.MediaEntity mediaEntity = new VideoEditedInfo.MediaEntity();
                     if (entity instanceof TextPaintView) {
-                        mediaEntity.type = 1;
+                        mediaEntity.type = VideoEditedInfo.MediaEntity.TYPE_TEXT;
                         TextPaintView textPaintView = (TextPaintView) entity;
                         CharSequence text = textPaintView.getText();
                         if (text instanceof Spanned) {
@@ -1899,9 +2824,20 @@ public class LPhotoPaintView extends SizeNotifierFrameLayoutPhoto implements IPh
                                     tlentity.offset = spanned.getSpanStart(span);
                                     tlentity.length = spanned.getSpanEnd(span) - tlentity.offset;
                                     tlentity.documentAbsolutePath = FileLoader.getInstance(currentAccount).getPathToAttach(document, true).getAbsolutePath();
+                                    int p = 0;
+                                    while (document != null && document.thumbs != null && !document.thumbs.isEmpty() && !new File(tlentity.documentAbsolutePath).exists()) {
+                                        tlentity.documentAbsolutePath = FileLoader.getInstance(currentAccount).getPathToAttach(document.thumbs.get(p), true).getAbsolutePath();
+                                        p++;
+                                        if (p >= document.thumbs.size()) {
+                                            break;
+                                        }
+                                    }
                                     boolean isAnimatedSticker = MessageObject.isAnimatedStickerDocument(tlentity.document, true);
-                                    if (isAnimatedSticker || MessageObject.isVideoStickerDocument(tlentity.document)) {
+                                    if (isAnimatedSticker || isVideoStickerDocument(tlentity.document)) {
                                         tlentity.subType |= isAnimatedSticker ? 1 : 4;
+                                    }
+                                    if (MessageObject.isTextColorEmoji(tlentity.document)) {
+                                        tlentity.subType |= 8;
                                     }
                                     mediaEntity.entities.add(tlentity);
 
@@ -1914,9 +2850,6 @@ public class LPhotoPaintView extends SizeNotifierFrameLayoutPhoto implements IPh
                                     }
                                 }
                             }
-                            if (!mediaEntity.entities.isEmpty()) {
-                                skipDrawToBitmap = true;
-                            }
                         }
                         mediaEntity.text = text.toString();
                         mediaEntity.subType = (byte) textPaintView.getType();
@@ -1924,9 +2857,8 @@ public class LPhotoPaintView extends SizeNotifierFrameLayoutPhoto implements IPh
                         mediaEntity.fontSize = textPaintView.getTextSize();
                         mediaEntity.textTypeface = textPaintView.getTypeface();
                         mediaEntity.textAlign = textPaintView.getAlign();
-                        skipDrawToBitmap = true;
                     } else if (entity instanceof StickerView) {
-                        mediaEntity.type = 0;
+                        mediaEntity.type = VideoEditedInfo.MediaEntity.TYPE_STICKER;
                         StickerView stickerView = (StickerView) entity;
                         Size size = stickerView.getBaseSize();
                         mediaEntity.width = size.width;
@@ -1935,11 +2867,11 @@ public class LPhotoPaintView extends SizeNotifierFrameLayoutPhoto implements IPh
                         mediaEntity.parentObject = stickerView.getParentObject();
                         TLRPC.Document document = stickerView.getSticker();
                         mediaEntity.text = FileLoader.getInstance(UserConfig.selectedAccount).getPathToAttach(document, true).getAbsolutePath();
-                        if (MessageObject.isAnimatedStickerDocument(document, true) || MessageObject.isVideoStickerDocument(document)) {
+                        if (MessageObject.isAnimatedStickerDocument(document, true) || isVideoStickerDocument(document)) {
                             boolean isAnimatedSticker = MessageObject.isAnimatedStickerDocument(document, true);
                             mediaEntity.subType |= isAnimatedSticker ? 1 : 4;
                             long duration;
-                            if (isAnimatedSticker) {
+                            if (isAnimatedSticker || isVideoStickerDocument(document)) {
                                 duration = stickerView.getDuration();
                             } else {
                                 duration = 5000;
@@ -1949,7 +2881,10 @@ public class LPhotoPaintView extends SizeNotifierFrameLayoutPhoto implements IPh
                                 lcm = lcm.multiply(x).divide(lcm.gcd(x));
                             }
                         }
-                        skipDrawToBitmap = true;
+                        if (MessageObject.isTextColorEmoji(document)) {
+                            mediaEntity.color = 0xFFFFFFFF;
+                            mediaEntity.subType |= 8;
+                        }
                         if (stickerView.isMirrored()) {
                             mediaEntity.subType |= 2;
                         }
@@ -1968,6 +2903,155 @@ public class LPhotoPaintView extends SizeNotifierFrameLayoutPhoto implements IPh
                             if (segmentedFile != null) {
                                 mediaEntity.subType |= 16;
                                 mediaEntity.segmentedPath = segmentedFile.getPath();
+                            }
+                        }
+                    } else if (entity instanceof LocationView) {
+                        LocationView locationView = (LocationView) entity;
+                        mediaEntity.type = VideoEditedInfo.MediaEntity.TYPE_LOCATION;
+                        mediaEntity.subType = (byte) locationView.getType();
+                        mediaEntity.width = locationView.marker.getWidth();
+                        mediaEntity.height = locationView.marker.getHeight();
+                        mediaEntity.text = locationView.marker.getText();
+                        mediaEntity.color = locationView.hasColor() ? locationView.getColor() : 0;
+                        mediaEntity.density = locationView.marker.density;
+                        mediaEntity.media = locationView.location;
+                        mediaEntity.mediaArea = locationView.mediaArea;
+                        mediaEntity.mediaArea.coordinates = new TL_stories.TL_mediaAreaCoordinates();
+                        TLRPC.Document emojiDocument = locationView.marker.getCodeEmojiDocument();
+                        if (emojiDocument != null) {
+                            VideoEditedInfo.EmojiEntity tlentity = new VideoEditedInfo.EmojiEntity();
+                            tlentity.document_id = emojiDocument.id;
+                            tlentity.document = emojiDocument;
+                            tlentity.documentAbsolutePath = FileLoader.getInstance(currentAccount).getPathToAttach(emojiDocument, true).getAbsolutePath();
+                            boolean isAnimatedSticker = MessageObject.isAnimatedStickerDocument(tlentity.document, true);
+                            if (isAnimatedSticker || isVideoStickerDocument(tlentity.document)) {
+                                tlentity.subType |= isAnimatedSticker ? 1 : 4;
+                            }
+                            mediaEntity.entities.add(tlentity);
+                        }
+                    } else if (entity instanceof WeatherView) {
+                        WeatherView weatherView = (WeatherView) entity;
+                        mediaEntity.type = VideoEditedInfo.MediaEntity.TYPE_WEATHER;
+                        mediaEntity.subType = (byte) weatherView.getType();
+                        mediaEntity.width = weatherView.marker.getWidth();
+                        mediaEntity.height = weatherView.marker.getHeight();
+                        mediaEntity.text = weatherView.marker.getText();
+                        mediaEntity.color = weatherView.hasColor() ? weatherView.getColor() : 0;
+                        mediaEntity.density = weatherView.marker.density;
+                        mediaEntity.weather = weatherView.weather;
+                        TL_stories.TL_mediaAreaWeather area = new TL_stories.TL_mediaAreaWeather();
+                        area.emoji = weatherView.weather.emoji;
+                        area.temperature_c = (int) Math.round(weatherView.weather.temperature);
+                        area.color = weatherView.marker.outlinePaint.getColor();
+                        mediaEntity.mediaArea = area;
+                        mediaEntity.mediaArea.coordinates = new TL_stories.TL_mediaAreaCoordinates();
+                        TLRPC.Document emojiDocument = weatherView.marker.getCodeEmojiDocument();
+                        if (emojiDocument != null) {
+                            VideoEditedInfo.EmojiEntity tlentity = new VideoEditedInfo.EmojiEntity();
+                            tlentity.document_id = emojiDocument.id;
+                            tlentity.document = emojiDocument;
+                            tlentity.documentAbsolutePath = FileLoader.getInstance(currentAccount).getPathToAttach(emojiDocument, true).getAbsolutePath();
+                            boolean isAnimatedSticker = MessageObject.isAnimatedStickerDocument(tlentity.document, true);
+                            if (isAnimatedSticker || isVideoStickerDocument(tlentity.document)) {
+                                tlentity.subType |= isAnimatedSticker ? 1 : 4;
+                            }
+                            if (tlentity.document != null) {
+                                long duration = 5000; // TODO(dkaraush)
+                                if (duration != 0) {
+                                    BigInteger x = BigInteger.valueOf(duration);
+                                    lcm = lcm.multiply(x).divide(lcm.gcd(x));
+                                }
+                            }
+                            mediaEntity.entities.add(tlentity);
+                        }
+                    } else if (entity instanceof LinkView) {
+                        LinkView linkView = (LinkView) entity;
+                        mediaEntity.type = VideoEditedInfo.MediaEntity.TYPE_LINK;
+                        if (linkView.marker.withPreview()) {
+                            mediaEntity.subType = (byte) linkView.marker.getPreviewType();
+                        } else {
+                            mediaEntity.subType = (byte) linkView.getType();
+                        }
+                        mediaEntity.width = linkView.marker.getWidth();
+                        mediaEntity.height = linkView.marker.getHeight();
+                        mediaEntity.color = linkView.hasColor() ? linkView.getColor() : 0;
+                        mediaEntity.density = linkView.marker.density;
+                        mediaEntity.linkSettings = linkView.link;
+                        if (linkView.marker.hasPhoto) {
+                            linkView.marker.pushPhotoToCache();
+                            mediaEntity.linkSettings.flags |= 4;
+                            mediaEntity.linkSettings.photoSize = linkView.marker.getPhotoSide();
+                        }
+                        mediaEntity.mediaArea = new TL_stories.TL_mediaAreaUrl();
+                        if (linkView.link == null) {
+                            continue;
+                        }
+                        ((TL_stories.TL_mediaAreaUrl) mediaEntity.mediaArea).url = linkView.link.webpage != null && !TextUtils.isEmpty(linkView.link.webpage.url) ? linkView.link.webpage.url : linkView.link.url;
+                        mediaEntity.mediaArea.coordinates = new TL_stories.TL_mediaAreaCoordinates();
+                    } else if (entity instanceof ReactionWidgetEntityView) {
+                        // TODO in stories it is true, keep false here just to draw over canvas
+                        skipDrawToBitmap = false;
+                        ReactionWidgetEntityView reactionView = (ReactionWidgetEntityView) entity;
+                        mediaEntity.type = VideoEditedInfo.MediaEntity.TYPE_REACTION;
+                        mediaEntity.mediaArea = new TL_stories.TL_mediaAreaSuggestedReaction();
+                        mediaEntity.mediaArea.reaction = ReactionsUtils.toTLReaction(reactionView.getCurrentReaction());
+                        mediaEntity.mediaArea.dark = reactionView.isDark();
+                        mediaEntity.mediaArea.flipped = reactionView.isMirrored();
+                        mediaEntity.mediaArea.coordinates = new TL_stories.TL_mediaAreaCoordinates();
+                    } else if (entity instanceof RoundView) {
+                        skipDrawToBitmap = true;
+                        RoundView roundView = (RoundView) entity;
+                        Size size = roundView.getBaseSize();
+                        mediaEntity.width = size.width;
+                        mediaEntity.height = size.height;
+                        mediaEntity.type = VideoEditedInfo.MediaEntity.TYPE_ROUND;
+                        if (entry != null) {
+                            mediaEntity.text = entry.round.getAbsolutePath();
+                            mediaEntity.roundOffset = entry.roundOffset;
+                            mediaEntity.roundDuration = entry.roundDuration;
+                            mediaEntity.roundLeft = (long) (entry.roundLeft * entry.roundDuration);
+                            mediaEntity.roundRight = (long) (entry.roundRight * entry.roundDuration);
+                        }
+                        mediaEntity.subType = 4;
+                        if (roundView.isMirrored()) {
+                            mediaEntity.subType |= 2;
+                        }
+                    } else if (entity instanceof MessageEntityView) {
+                        MessageEntityView messageView = (MessageEntityView) entity;
+                        mediaEntity.type = VideoEditedInfo.MediaEntity.TYPE_MESSAGE;
+                        mediaEntity.width = mediaEntity.viewWidth = messageView.getWidth();
+                        mediaEntity.height = mediaEntity.viewHeight = messageView.getHeight();
+                        mediaEntity.mediaArea = new TL_stories.TL_inputMediaAreaChannelPost();
+                        mediaEntity.mediaArea.coordinates = new TL_stories.TL_mediaAreaCoordinates();
+                        if (entry != null && entry.messageObjects != null) {
+                            MessageObject messageObject = entry.messageObjects.get(0);
+                            ((TL_stories.TL_inputMediaAreaChannelPost) mediaEntity.mediaArea).channel = MessagesController.getInstance(currentAccount).getInputChannel(-StoryEntry.getRepostDialogId(messageObject));
+                            ((TL_stories.TL_inputMediaAreaChannelPost) mediaEntity.mediaArea).msg_id = StoryEntry.getRepostMessageId(messageObject);
+                        }
+                        if (!drawMessage) {
+                            skipDrawToBitmap = true;
+                        } else if (entry != null && entry.isVideo) {
+                            entry.matrix.reset();
+                            View child = null;
+                            ImageReceiver photoImage = null;
+                            if (messageView.listView.getChildCount() == 1) {
+                                child = messageView.listView.getChildAt(0);
+                                if (child instanceof ChatMessageCell) {
+                                    photoImage = ((ChatMessageCell) child).getPhotoImage();
+                                }
+                            }
+                            if (photoImage != null) {
+                                float scale = Math.max(photoImage.getImageWidth() / Math.max(1, entry.width), photoImage.getImageHeight() / Math.max(1, entry.height));
+                                entry.matrix.postScale(scale, scale);
+                                entry.matrix.postTranslate(photoImage.getCenterX() - entry.width * scale / 2f, photoImage.getCenterY() - entry.height * scale / 2f);
+                                entry.matrix.postTranslate(messageView.container.getX(), messageView.container.getY());
+                                entry.matrix.postTranslate(messageView.listView.getX(), messageView.listView.getY());
+                                entry.matrix.postTranslate(child.getX(), child.getY());
+                                entry.matrix.postScale(messageView.getScaleX(), messageView.getScaleY(), messageView.getPivotX(), messageView.getPivotY());
+                                entry.matrix.postRotate(messageView.getRotation(), messageView.getPivotX(), messageView.getPivotY());
+                                entry.matrix.postTranslate(messageView.getX(), messageView.getY());
+                                entry.matrix.postScale(1f / entitiesView.getWidth(), 1f / entitiesView.getHeight());
+                                entry.matrix.postScale(entry.resultWidth, entry.resultHeight);
                             }
                         }
                     } else {
@@ -1992,42 +3076,122 @@ public class LPhotoPaintView extends SizeNotifierFrameLayoutPhoto implements IPh
                     mediaEntity.textViewHeight = mediaEntity.viewHeight / (float) entitiesView.getMeasuredHeight();
                     mediaEntity.scale = scaleX;
 
-                    if (thumbBitmap[0] == null) {
-                        thumbBitmap[0] = Bitmap.createBitmap(bitmap.getWidth(), bitmap.getHeight(), bitmap.getConfig());
-                        thumbCanvas = new Canvas(thumbBitmap[0]);
-                        thumbCanvas.drawBitmap(bitmap, 0, 0, null);
+                    double radius = -1;
+                    if (entity instanceof MessageEntityView) {
+                        MessageEntityView mv = (MessageEntityView) entity;
+                        radius = mv.getBubbleBounds(AndroidUtilities.rectTmp);
+                        AndroidUtilities.rectTmp.offset(mv.container.getX(), mv.container.getY());
+                        AndroidUtilities.rectTmp.offset(mv.listView.getX(), mv.listView.getY());
+                        mediaEntity.mediaArea.coordinates.x = (x + v.getWidth() / 2f - v.getWidth() / 2f * scaleX + AndroidUtilities.rectTmp.centerX() * scaleX) / entitiesView.getMeasuredWidth() * 100;
+                        mediaEntity.mediaArea.coordinates.y = (y + v.getHeight() / 2f - v.getHeight() / 2f * scaleY + AndroidUtilities.rectTmp.centerY() * scaleY) / entitiesView.getMeasuredHeight() * 100;
+                        mediaEntity.mediaArea.coordinates.w = AndroidUtilities.rectTmp.width() * scaleX / entitiesView.getMeasuredWidth() * 100;
+                        mediaEntity.mediaArea.coordinates.h = AndroidUtilities.rectTmp.height() * scaleY / entitiesView.getMeasuredHeight() * 100;
+                        mediaEntity.mediaArea.coordinates.rotation = -mediaEntity.rotation / Math.PI * 180;
+                    } else if (entity instanceof StickerView) {
+                        final float a = ((StickerView) entity).centerImage.getImageAspectRatio();
+                        final float cx = mediaEntity.x + mediaEntity.width / 2f;
+                        final float cy = mediaEntity.y + mediaEntity.height / 2f;
+                        final float A = (float) entitiesView.getMeasuredWidth() / (float) entitiesView.getMeasuredHeight();
+                        if (a > 1) {
+                            // a = width / height
+                            mediaEntity.height = mediaEntity.width * A / a;
+                            mediaEntity.viewHeight = (int) (mediaEntity.viewWidth / a);
+                            mediaEntity.y = cy - mediaEntity.height / 2f;
+                        } else if (a < 1) {
+                            mediaEntity.width = mediaEntity.height / A * a;
+                            mediaEntity.viewWidth = (int) (mediaEntity.viewHeight * a);
+                            mediaEntity.x = cx - mediaEntity.width / 2f;
+                        }
+                    } else if (mediaEntity.mediaArea != null && (entity instanceof LocationView || entity instanceof WeatherView || entity instanceof LinkView || entity instanceof ReactionWidgetEntityView)) {
+                        mediaEntity.mediaArea.coordinates.x = (mediaEntity.x + mediaEntity.width / 2f) * 100;
+                        mediaEntity.mediaArea.coordinates.y = (mediaEntity.y + mediaEntity.height / 2f) * 100;
+                        if (entity instanceof LocationView) {
+                            mediaEntity.mediaArea.coordinates.w = (mediaEntity.width - 2 * ((LocationView) entity).marker.padx * scaleX / (float) entitiesView.getMeasuredWidth()) * 100;
+                            mediaEntity.mediaArea.coordinates.h = (mediaEntity.height - 2 * ((LocationView) entity).marker.pady * scaleY / (float) entitiesView.getMeasuredHeight()) * 100;
+                        } else if (entity instanceof WeatherView) {
+                            mediaEntity.mediaArea.coordinates.w = (mediaEntity.width - 2 * ((WeatherView) entity).marker.padx * scaleX / (float) entitiesView.getMeasuredWidth()) * 100;
+                            mediaEntity.mediaArea.coordinates.h = (mediaEntity.height - 2 * ((WeatherView) entity).marker.pady * scaleY / (float) entitiesView.getMeasuredHeight()) * 100;
+                        } else if (entity instanceof LinkView) {
+                            mediaEntity.mediaArea.coordinates.w = (mediaEntity.width - 2 * ((LinkView) entity).marker.padx * scaleX / (float) entitiesView.getMeasuredWidth()) * 100;
+                            mediaEntity.mediaArea.coordinates.h = (mediaEntity.height - 2 * ((LinkView) entity).marker.pady * scaleY / (float) entitiesView.getMeasuredHeight()) * 100;
+                        } else if (entity instanceof ReactionWidgetEntityView) {
+                            float padW = 2 * ((ReactionWidgetEntityView) entity).getPadding() * scaleX / (float) entitiesView.getMeasuredWidth();
+                            float padH = 2 * ((ReactionWidgetEntityView) entity).getPadding() * scaleX / (float) entitiesView.getMeasuredHeight();
+                            mediaEntity.mediaArea.coordinates.w = (mediaEntity.width - padW) * 100;
+                            mediaEntity.mediaArea.coordinates.h = (mediaEntity.height - padH) * 100;
+                        }
+                        mediaEntity.mediaArea.coordinates.rotation = -mediaEntity.rotation / Math.PI * 180;
+                        if (entity instanceof LocationView) {
+                            radius = ((LocationView) entity).marker.getRadius();
+                        } else if (entity instanceof WeatherView) {
+                            radius = ((WeatherView) entity).marker.getRadius();
+                        } else if (entity instanceof LinkView) {
+                            radius = ((LinkView) entity).marker.getRadius();
+                        }
+                    }
+                    if (mediaEntity.mediaArea != null && mediaEntity.mediaArea.coordinates != null && radius > 0) {
+                        mediaEntity.mediaArea.coordinates.flags |= 1;
+                        mediaEntity.mediaArea.coordinates.radius = (scaleX * radius / (float) entitiesView.getMeasuredWidth()) * 100;
                     }
                 }
-                canvas = new Canvas(bitmap);
-                for (int k = 0; k < 2; k++) {
-                    Canvas currentCanvas = k == 0 ? canvas : thumbCanvas;
-                    if (currentCanvas == null || (k == 0 && skipDrawToBitmap)) {
-                        continue;
-                    }
-                    currentCanvas.save();
-                    currentCanvas.translate(position.x, position.y);
-                    currentCanvas.scale(v.getScaleX(), v.getScaleY());
-                    currentCanvas.rotate(v.getRotation());
-                    currentCanvas.translate(-entity.getWidth() / 2f, -entity.getHeight() / 2f);
-                    if (v instanceof TextPaintView && v.getHeight() > 0 && v.getWidth() > 0) {
-                        Bitmap b = Bitmaps.createBitmap(v.getWidth(), v.getHeight(), Bitmap.Config.ARGB_8888);
-                        Canvas c = new Canvas(b);
-                        v.draw(c);
-                        currentCanvas.drawBitmap(b, null, new Rect(0, 0, b.getWidth(), b.getHeight()), null);
-                        try {
-                            c.setBitmap(null);
-                        } catch (Exception e) {
-                            FileLog.e(e);
+                if (drawThisEntity && (drawEntities || drawMessage && mediaEntity.type == VideoEditedInfo.MediaEntity.TYPE_MESSAGE) && bitmap != null) {
+                    canvas = new Canvas(bitmap);
+                    final float s = bitmap.getWidth() / (float) entitiesView.getMeasuredWidth();
+                    for (int k = 0; k < 2; k++) {
+                        Canvas currentCanvas = k == 0 ? canvas : thumbCanvas;
+                        if (currentCanvas == null || (k == 0 && skipDrawToBitmap)) {
+                            continue;
                         }
-                        b.recycle();
-                    } else {
-                        v.draw(currentCanvas);
+                        currentCanvas.save();
+                        currentCanvas.scale(s, s);
+                        currentCanvas.translate(mediaEntity.x * entitiesView.getMeasuredWidth(), mediaEntity.y * entitiesView.getMeasuredHeight());
+                        currentCanvas.scale(v.getScaleX(), v.getScaleY());
+                        currentCanvas.rotate(v.getRotation(), mediaEntity.width / 2f / v.getScaleX() * entitiesView.getMeasuredWidth(), mediaEntity.height / 2f / v.getScaleY() * entitiesView.getMeasuredHeight());
+//                        currentCanvas.translate(-entity.getWidth() / (float) entitiesView.getMeasuredWidth() * bitmap.getWidth() / 2f, -entity.getHeight() / (float) entitiesView.getMeasuredHeight() * bitmap.getHeight() / 2f);
+                        if (v instanceof TextPaintView && v.getHeight() > 0 && v.getWidth() > 0) {
+                            int w = (int) (v.getWidth() * v.getScaleX()), h = (int) (v.getHeight() * v.getScaleY());
+                            Bitmap b = Bitmaps.createBitmap(w, h, Bitmap.Config.ARGB_8888);
+                            Canvas c = new Canvas(b);
+                            c.scale(v.getScaleX(), v.getScaleY());
+                            v.draw(c);
+                            currentCanvas.scale(1f / v.getScaleX(), 1f / v.getScaleY());
+                            currentCanvas.drawBitmap(b, null, new Rect(0, 0, w, h), new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG));
+                            try {
+                                c.setBitmap(null);
+                            } catch (Exception e) {
+                                FileLog.e(e);
+                            }
+                            b.recycle();
+                        } else {
+                            if (v instanceof MessageEntityView) {
+                                MessageEntityView mv = (MessageEntityView) v;
+                                mv.prepareToDraw(true);
+                                v.draw(currentCanvas);
+                                mv.prepareToDraw(false);
+                            } else {
+                                v.draw(currentCanvas);
+                            }
+                        }
+                        currentCanvas.restore();
                     }
-                    currentCanvas.restore();
                 }
             }
         }
         return bitmap;
+    }
+
+    public static boolean isVideoStickerDocument(TLRPC.Document document) {
+        if (document != null) {
+            for (int a = 0; a < document.attributes.size(); a++) {
+                TLRPC.DocumentAttribute attribute = document.attributes.get(a);
+                if (attribute instanceof TLRPC.TL_documentAttributeSticker ||
+                        attribute instanceof TLRPC.TL_documentAttributeCustomEmoji ||
+                        attribute instanceof TLRPC.TL_documentAttributeVideo) {
+                    return "video/webm".equals(document.mime_type) || "video/mp4".equals(document.mime_type);
+                }
+            }
+        }
+        return false;
     }
 
     @Override
@@ -2173,7 +3337,7 @@ public class LPhotoPaintView extends SizeNotifierFrameLayoutPhoto implements IPh
                 tx = trX;
                 ty = trY;
             }
-            ty += - emojiPadding / 2f;
+            ty += -emojiPadding / 2f;
             float finalScale = scale * additionlScale;
             if (Float.isNaN(finalScale)) {
                 finalScale = 1f;
@@ -2270,7 +3434,7 @@ public class LPhotoPaintView extends SizeNotifierFrameLayoutPhoto implements IPh
         int wasColor = colorSwatch.color;
         colorSwatch.color = PersistColorPalette.getInstance(currentAccount).getCurrentColor();
         colorSwatch.brushWeight = weightDefaultValueOverride.get();
-        setCurrentSwatch(colorSwatch, true, wasColor);
+        setCurrentSwatch(colorSwatch, true, wasColor, false);
         renderInputView.invalidate();
     }
 
@@ -2335,7 +3499,7 @@ public class LPhotoPaintView extends SizeNotifierFrameLayoutPhoto implements IPh
                     .setStiffness(1250f)
                     .setDampingRatio(SpringForce.DAMPING_RATIO_NO_BOUNCY));
 
-            boolean[] moveBottomLayout = new boolean[] { keyboardVisible || emojiViewVisible };
+            boolean[] moveBottomLayout = new boolean[]{keyboardVisible || emojiViewVisible};
             float bottomLayoutTranslationY = bottomLayout.getTranslationY();
 
             View barView = getBarView();
@@ -2388,10 +3552,10 @@ public class LPhotoPaintView extends SizeNotifierFrameLayoutPhoto implements IPh
     }
 
     private void setCurrentSwatch(Swatch swatch, boolean updateInterface) {
-        setCurrentSwatch(swatch, updateInterface, null);
+        setCurrentSwatch(swatch, updateInterface, null, false);
     }
 
-    private void setCurrentSwatch(Swatch swatch, boolean updateInterface, Integer prevColor) {
+    private void setCurrentSwatch(Swatch swatch, boolean updateInterface, Integer prevColor, boolean updatedColor) {
         if (colorSwatch != swatch) {
             colorSwatch.color = swatch.color;
             colorSwatch.colorLocation = swatch.colorLocation;
@@ -2423,11 +3587,28 @@ public class LPhotoPaintView extends SizeNotifierFrameLayoutPhoto implements IPh
 
         if (currentEntityView instanceof TextPaintView) {
             ((TextPaintView) currentEntityView).setSwatch(new Swatch(swatch.color, swatch.colorLocation, swatch.brushWeight));
+        } else if (updatedColor && currentEntityView instanceof LocationView) {
+            ((LocationView) currentEntityView).setColor(swatch.color);
+            ((LocationView) currentEntityView).setType(3);
+        } else if (updatedColor && currentEntityView instanceof WeatherView) {
+            ((WeatherView) currentEntityView).setColor(swatch.color);
+            ((WeatherView) currentEntityView).setType(3);
+        } else if (updatedColor && currentEntityView instanceof LinkView) {
+            ((LinkView) currentEntityView).setColor(swatch.color);
+            ((LinkView) currentEntityView).setType(0);
         }
     }
 
     @Override
     public boolean onBackPressed() {
+        if (reactionLayoutShowing) {
+            if (reactionLayout.getReactionsWindow() != null && reactionLayout.getReactionsWindow().isShowing()) {
+                reactionLayout.dismissWindow();
+            } else {
+                showReactionsLayout(false);
+            }
+            return true;
+        }
         if (isColorListShown) {
             showColorList(false);
             return true;
@@ -2439,6 +3620,12 @@ public class LPhotoPaintView extends SizeNotifierFrameLayoutPhoto implements IPh
         }
 
         if (editingText) {
+            if (enteredThroughText) {
+                enteredThroughText = false;
+                // TODO investigate, align and unignore
+                //keyboardNotifier.ignore(true);
+                return false;
+            }
             selectEntity(null);
             return true;
         }
@@ -2487,6 +3674,7 @@ public class LPhotoPaintView extends SizeNotifierFrameLayoutPhoto implements IPh
 
             imagesView = new FrameLayout(context) {
                 Path path = new Path();
+
                 @Override
                 protected boolean drawChild(Canvas canvas, View child, long drawingTime) {
                     if (imageSwitchAnimator != null) {
@@ -2539,7 +3727,7 @@ public class LPhotoPaintView extends SizeNotifierFrameLayoutPhoto implements IPh
         }
 
         public void setIcon(int resId) {
-            setIcon(resId, true,false);
+            setIcon(resId, true, false);
         }
 
         public void setIcon(int resId, boolean fillup, boolean animated) {
@@ -2615,6 +3803,7 @@ public class LPhotoPaintView extends SizeNotifierFrameLayoutPhoto implements IPh
         if (keyboardVisible || emojiViewVisible) {
             onEmojiButtonClick();
         } else {
+            forceChanges = true;
             createText(true);
         }
     }
@@ -2772,7 +3961,7 @@ public class LPhotoPaintView extends SizeNotifierFrameLayoutPhoto implements IPh
                 parent.addView(flipView, LayoutHelper.createLinear(LayoutHelper.WRAP_CONTENT, 48));
             }
 
-            if (!(entityView instanceof PhotoView)) {
+            if (!(entityView instanceof PhotoView) && !(entityView instanceof WeatherView)) {
                 TextView duplicateView = new TextView(getContext());
                 duplicateView.setTextColor(getThemedColor(Theme.key_actionBarDefaultSubmenuItem));
                 duplicateView.setBackgroundDrawable(Theme.getSelectorDrawable(false));
@@ -3066,7 +4255,7 @@ public class LPhotoPaintView extends SizeNotifierFrameLayoutPhoto implements IPh
             }
 
             Point location = stickerView.getPosition();
-            float distance = (float)Math.hypot(location.x - anchorPoint.x, location.y - anchorPoint.y);
+            float distance = (float) Math.hypot(location.x - anchorPoint.x, location.y - anchorPoint.y);
             if ((documentId == stickerView.getSticker().id || faces.size() > 1) && distance < minDistance) {
                 return true;
             }
@@ -3132,7 +4321,8 @@ public class LPhotoPaintView extends SizeNotifierFrameLayoutPhoto implements IPh
         undoStore.registerUndo(entityView.getUUID(), () -> removeEntity(entityView));
     }
 
-    protected void didSetAnimatedSticker(RLottieDrawable drawable) {}
+    protected void didSetAnimatedSticker(RLottieDrawable drawable) {
+    }
 
     @Override
     public boolean onEntitySelected(EntityView entityView) {
@@ -3141,6 +4331,7 @@ public class LPhotoPaintView extends SizeNotifierFrameLayoutPhoto implements IPh
 
     @Override
     public boolean onEntityLongClicked(EntityView entityView) {
+        showReactionsLayout(false);
         showMenuForEntity(entityView);
         return true;
     }
@@ -3162,6 +4353,7 @@ public class LPhotoPaintView extends SizeNotifierFrameLayoutPhoto implements IPh
     private Matrix matrix = new Matrix();
     private float[] position = new float[2];
     private int[] pos2 = new int[2];
+
     private int[] getCenterLocationInWindow(View view) {
         // code taken from android transformFromViewToWindowSpace source code
         position[0] = view.getWidth() / 2f;
@@ -3231,7 +4423,7 @@ public class LPhotoPaintView extends SizeNotifierFrameLayoutPhoto implements IPh
 
     /* === emoji keyboard support === */
 
-    private EmojiView emojiView;
+    public EmojiView emojiView;
     public boolean emojiViewVisible, emojiViewWasVisible;
     public boolean keyboardVisible, isAnimatePopupClosing;
     private int emojiPadding, emojiWasPadding;
@@ -3422,6 +4614,7 @@ public class LPhotoPaintView extends SizeNotifierFrameLayoutPhoto implements IPh
     }
 
     private boolean bottomPanelIgnoreOnce;
+
     private void bottomPanelTranslationY(float ty, float progress) {
 //        bottomLayout.setTranslationY(ty - emojiPadding + progress * AndroidUtilities.dp(40));
 //        panTranslationY = (ty - emojiPadding) / 2f; // (-keyboardHeight / 2f * (panTranslationProgress) + -(emojiPadding + ty) / 2);
@@ -3710,6 +4903,10 @@ public class LPhotoPaintView extends SizeNotifierFrameLayoutPhoto implements IPh
     @Override
     protected void onDetachedFromWindow() {
         destroyed = true;
+        if (reactionLayout != null) {
+            AndroidUtilities.removeFromParent(reactionLayout);
+            reactionLayout = null;
+        }
         super.onDetachedFromWindow();
         NotificationCenter.getGlobalInstance().removeObserver(this, NotificationCenter.customTypefacesLoaded);
     }
@@ -3786,6 +4983,7 @@ public class LPhotoPaintView extends SizeNotifierFrameLayoutPhoto implements IPh
         matrix.postTranslate(photoView.getX() + tx, photoView.getY() + ty);
         thanosEffect.animate(matrix, bitmap, () -> {
             photoView.onSwitchSegmentedAnimationStarted(true);
-        }, () -> {});
+        }, () -> {
+        });
     }
 }

@@ -93,8 +93,10 @@ public class LinkPreview extends View {
     }
 
     public void setMaxWidth(int maxWidth) {
-        this.maxWidth = maxWidth;
-        this.relayout = true;
+        if (maxWidth >= 0) {
+            this.maxWidth = maxWidth;
+            this.relayout = true;
+        }
     }
 
     private boolean video;

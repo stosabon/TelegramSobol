@@ -8,6 +8,7 @@
 
 package org.telegram.messenger;
 
+import static org.telegram.ui.Stories.recorder.StoryEntry.getScaledBitmap;
 import android.Manifest;
 import android.animation.Animator;
 import android.animation.AnimatorListenerAdapter;
@@ -25,11 +26,18 @@ import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.database.ContentObserver;
 import android.database.Cursor;
+import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.graphics.Canvas;
+import android.graphics.LinearGradient;
 import android.graphics.Matrix;
+import android.graphics.Paint;
 import android.graphics.Point;
+import android.graphics.RectF;
+import android.graphics.Shader;
 import android.graphics.SurfaceTexture;
 import android.graphics.drawable.BitmapDrawable;
+import android.graphics.drawable.Drawable;
 import android.hardware.Sensor;
 import android.hardware.SensorEvent;
 import android.hardware.SensorEventListener;
@@ -93,6 +101,9 @@ import org.telegram.ui.Components.VideoPlayer;
 import org.telegram.ui.LaunchActivity;
 import org.telegram.ui.PhotoViewer;
 import org.telegram.ui.Stories.DarkThemeResourceProvider;
+import org.telegram.ui.Stories.recorder.CollageLayout;
+import org.telegram.ui.Stories.recorder.PreviewView;
+import org.telegram.ui.Stories.recorder.StoryEntry;
 
 import java.io.File;
 import java.io.FileDescriptor;
@@ -464,6 +475,14 @@ public class MediaController implements AudioManager.OnAudioFocusChangeListener,
         public boolean hasSpoiler;
         public long starsAmount;
         public String emoji;
+        // matrix describes transformations from width x height to resultWidth x resultHeight
+        public final Matrix matrix = new Matrix();
+        public CollageLayout collage;
+        public ArrayList<PhotoEntry> collageContent;
+        public int resultWidth = 720;
+        public int resultHeight = 1280;
+        public float videoLeft = 0f, videoRight = 1f;
+        public long videoOffset;
 
         public int videoOrientation = -1;
 
@@ -474,6 +493,10 @@ public class MediaController implements AudioManager.OnAudioFocusChangeListener,
         public int gradientTopColor, gradientBottomColor;
 
         public BitmapDrawable thumb;
+
+        public PhotoEntry() {
+
+        }
 
         public PhotoEntry(int bucketId, int imageId, long dateTaken, String path, int orientationOrDuration, boolean isVideo, int width, int height, long size) {
             this.bucketId = bucketId;
@@ -502,6 +525,64 @@ public class MediaController implements AudioManager.OnAudioFocusChangeListener,
             this.duration = duration;
             this.orientation = orientation;
             this.isVideo = isVideo;
+        }
+
+        public static PhotoEntry asCollage(CollageLayout layout, ArrayList<PhotoEntry> entries, String path) {
+            PhotoEntry entry = new PhotoEntry();
+            entry.path = path;
+            entry.collage = layout;
+            entry.collageContent = entries;
+            for (PhotoEntry e : entries) {
+                if (e.isVideo) {
+                    entry.isVideo = true;
+                    e.videoLeft = 0;
+                    e.videoRight = Math.min(1.0f, 59_000.0f / e.duration);
+                }
+            }
+            if (entry.isVideo) {
+                entry.width = 720;
+                entry.height = 1280;
+                entry.resultWidth = 720;
+                entry.resultHeight = 1280;
+            } else {
+                entry.width = 1080;
+                entry.height = 1920;
+                entry.resultWidth = 1080;
+                entry.resultHeight = 1920;
+            }
+            entry.setupMatrix();
+            return entry;
+        }
+
+        public void setupMatrix() {
+            setupMatrix(matrix, 0);
+        }
+
+        public void setupMatrix(Matrix matrix, int rotate) {
+            matrix.reset();
+            int width = this.width, height = this.height;
+            int or = orientation + rotate;
+            matrix.postScale(invert == 1 ? -1.0f : 1.0f, invert == 2 ? -1.0f : 1.0f, width / 2f, height / 2f);
+            if (or != 0) {
+                matrix.postTranslate(-width / 2f, -height / 2f);
+                matrix.postRotate(or);
+                if (or == 90 || or == 270) {
+                    final int swap = height;
+                    height = width;
+                    width = swap;
+                }
+                matrix.postTranslate(width / 2f, height / 2f);
+            }
+            float scale = (float) resultWidth / width;
+            if (true
+                    //botId != 0
+            ) {
+                scale = Math.min(scale, (float) resultHeight / height);
+            } else if ((float) height / (float) width > 1.29f) {
+                scale = Math.max(scale, (float) resultHeight / height);
+            }
+            matrix.postScale(scale, scale);
+            matrix.postTranslate((resultWidth - width * scale) / 2f, (resultHeight - height * scale) / 2f);
         }
 
         public PhotoEntry setOrientation(Pair<Integer, Integer> rotationAndInvert) {
@@ -589,6 +670,101 @@ public class MediaController implements AudioManager.OnAudioFocusChangeListener,
                 } catch (Exception ignore) {}
             }
         }
+
+            public Bitmap buildBitmap(float scale, Bitmap mainFileBitmap) {
+                Matrix tempMatrix = new Matrix();
+
+                Paint bitmapPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG | Paint.DITHER_FLAG);
+                final int w = (int) (resultWidth * scale), h = (int) (resultHeight * scale);
+                Bitmap finalBitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
+                Canvas canvas = new Canvas(finalBitmap);
+
+                //if (backgroundFile != null) {
+                //    try {
+                //        Bitmap paintBitmap = getScaledBitmap(opts -> BitmapFactory.decodeFile(backgroundFile.getPath(), opts), w, h, false, true);
+                //        canvas.save();
+                //        float s = resultWidth / (float) paintBitmap.getWidth();
+                //        canvas.scale(s, s);
+                //        tempMatrix.postScale(scale, scale);
+                //        canvas.drawBitmap(paintBitmap, 0, 0, bitmapPaint);
+                //        canvas.restore();
+                //        paintBitmap.recycle();
+                //    } catch (Exception e) {
+                //        FileLog.e(e);
+                //    }
+                //} else if (backgroundWallpaperEmoticon != null) {
+                //    Drawable drawable = backgroundDrawable;
+                //    if (drawable == null) {
+                //        drawable = PreviewView.getBackgroundDrawableFromTheme(currentAccount, backgroundWallpaperEmoticon, isDark);
+                //    }
+                //    drawBackgroundDrawable(canvas, drawable, canvas.getWidth(), canvas.getHeight());
+                //} else if (backgroundWallpaperPeerId != Long.MIN_VALUE) {
+                //    Drawable drawable = backgroundDrawable;
+                //    if (drawable == null) {
+                //        drawable = PreviewView.getBackgroundDrawable(null, currentAccount, backgroundWallpaperPeerId, isDark);
+                //    }
+                //    drawBackgroundDrawable(canvas, drawable, canvas.getWidth(), canvas.getHeight());
+                //} else {
+                    Paint gradientPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+                    gradientPaint.setShader(new LinearGradient(0, 0, 0, canvas.getHeight(), new int[]{gradientTopColor, gradientBottomColor}, new float[]{0, 1}, Shader.TileMode.CLAMP));
+                    canvas.drawRect(0, 0, canvas.getWidth(), canvas.getHeight(), gradientPaint);
+                //}
+
+                tempMatrix.set(matrix);
+                if (mainFileBitmap != null) {
+                    final float s = (float) width / mainFileBitmap.getWidth();
+                    tempMatrix.preScale(s, s);
+                    tempMatrix.postScale(scale, scale);
+                    canvas.drawBitmap(mainFileBitmap, tempMatrix, bitmapPaint);
+                } else {
+                        for (int i = 0; i < collageContent.size(); ++i) {
+                            MediaController.PhotoEntry entry = collageContent.get(i);
+                            final File file = new File(entry.path);
+                            if (file != null) {
+                                try {
+                                    final Bitmap fileBitmap = getScaledBitmap(opts -> BitmapFactory.decodeFile(file.getPath(), opts), w, h, true, true);
+                                    canvas.save();
+                                    final RectF bounds = new RectF();
+                                    collage.parts.get(i).bounds(bounds, w, h);
+                                    canvas.translate(bounds.centerX(), bounds.centerY());
+                                    canvas.clipRect(-bounds.width() / 2.0f, -bounds.height() / 2.0f, bounds.width() / 2.0f, bounds.height() / 2.0f);
+                                    final float s = Math.max(bounds.width() / fileBitmap.getWidth(), bounds.height() / fileBitmap.getHeight());
+                                    canvas.scale(s, s);
+                                    canvas.translate(-fileBitmap.getWidth() / 2.0f, -fileBitmap.getHeight() / 2.0f);
+                                    canvas.drawBitmap(fileBitmap, 0, 0, null);
+                                    canvas.restore();
+                                } catch (Exception e) {
+                                    FileLog.e(e);
+                                }
+                            }
+                        }
+                }
+
+                return finalBitmap;
+            }
+
+            public void buildPhoto(File dest) {
+                final Bitmap finalBitmap = buildBitmap(1f, null);
+                //if (thumbBitmap != null) {
+                    //thumbBitmap.recycle();
+                    //thumbBitmap = null;
+                //}
+                //thumbBitmap = Bitmap.createScaledBitmap(finalBitmap, 40, 22, true);
+                try {
+                    FileOutputStream stream = new FileOutputStream(dest);
+                    finalBitmap.compress(Bitmap.CompressFormat.JPEG, 95, stream);
+                    stream.close();
+                } catch (Exception e) {
+                    FileLog.e(e);
+                }
+                finalBitmap.recycle();
+            }
+
+        public boolean isCollage() {
+            return collage != null && collageContent != null;
+        }
+
+
     }
 
     public static class SearchImage extends MediaEditState {

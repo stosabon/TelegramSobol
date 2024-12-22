@@ -2,15 +2,11 @@ package org.telegram.ui.Stories.recorder;
 
 import android.content.Context;
 import android.content.SharedPreferences;
-import android.content.pm.PackageManager;
 import android.graphics.Matrix;
 import android.graphics.PointF;
 import android.graphics.SurfaceTexture;
 import android.hardware.Camera;
-import android.hardware.camera2.CameraAccessException;
 import android.os.Build;
-import android.text.TextUtils;
-import android.util.Log;
 import android.view.HapticFeedbackConstants;
 import android.view.MotionEvent;
 import android.view.ViewConfiguration;
@@ -26,16 +22,11 @@ import org.telegram.messenger.MessagesController;
 import org.telegram.messenger.R;
 import org.telegram.messenger.SharedConfig;
 import org.telegram.messenger.UserConfig;
-import org.telegram.messenger.camera.CameraController;
-import org.telegram.messenger.camera.CameraSession;
 import org.telegram.messenger.camera.CameraSessionWrapper;
 import org.telegram.messenger.camera.CameraView;
 import org.telegram.tgnet.ConnectionsManager;
 import org.telegram.tgnet.TLRPC;
 import org.telegram.ui.ActionBar.AlertDialog;
-
-import java.util.Arrays;
-import java.util.Locale;
 
 public class DualCameraView extends CameraView {
 
@@ -48,7 +39,7 @@ public class DualCameraView extends CameraView {
 
     @Override
     public boolean onTouchEvent(MotionEvent event) {
-        boolean r = touchEvent(event);
+        boolean r = interceptTouchEvents && touchEvent(event);
         return super.onTouchEvent(event) || r;
     }
 
@@ -71,21 +62,22 @@ public class DualCameraView extends CameraView {
     private boolean doNotSpanRotation;
     private float[] tempPoint = new float[4];
 
-    private final Matrix toScreen = new Matrix();
+    private final Matrix toFrame = new Matrix();
     private final Matrix toGL = new Matrix();
 
     private boolean firstMeasure = true;
     private boolean atTop, atBottom;
 
     private boolean enabledSavedDual;
+    private boolean interceptTouchEvents = true;
 
     @Override
     protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
         super.onMeasure(widthMeasureSpec, heightMeasureSpec);
-        toScreen.reset();
-        toScreen.postTranslate(1f, -1f);
-        toScreen.postScale(getMeasuredWidth() / 2f, -getMeasuredHeight() / 2f);
-        toScreen.invert(toGL);
+        toFrame.reset();
+        toFrame.postTranslate(1f, -1f);
+        toFrame.postScale(getTextureView().getMeasuredWidth() / 2f, -getTextureView().getMeasuredHeight() / 2f);
+        toFrame.invert(toGL);
     }
 
     @Override
@@ -144,6 +136,10 @@ public class DualCameraView extends CameraView {
         resetSavedDual();
     }
 
+    public void interceptTouchEvents(boolean interceptTouchEvents) {
+        this.interceptTouchEvents = interceptTouchEvents;
+    }
+
     @Override
     public void toggleDual() {
         if (!isDual() && !dualAvailable()) {
@@ -168,7 +164,7 @@ public class DualCameraView extends CameraView {
         }
 
         if (setDefault) {
-            matrix.postConcat(toScreen);
+            matrix.postConcat(toFrame);
 
             float w = getMeasuredWidth() * .43f;
             float h = getMeasuredHeight() * .43f;
@@ -202,9 +198,10 @@ public class DualCameraView extends CameraView {
     private Matrix invMatrix = new Matrix();
     private Runnable longpressRunnable;
     private boolean checkTap(MotionEvent ev) {
+        int offsetX = (getTextureView().getMeasuredWidth() - getMeasuredWidth()) / 2;
         if (ev.getAction() == MotionEvent.ACTION_DOWN) {
             tapTime = System.currentTimeMillis();
-            tapX = ev.getX();
+            tapX = ev.getX() + offsetX;
             tapY = ev.getY();
             lastFocusToPoint = null;
             if (longpressRunnable != null) {
@@ -221,7 +218,7 @@ public class DualCameraView extends CameraView {
             }
             return true;
         } else if (ev.getAction() == MotionEvent.ACTION_UP) {
-            if (System.currentTimeMillis() - tapTime <= ViewConfiguration.getTapTimeout() && MathUtils.distance(tapX, tapY, ev.getX(), ev.getY()) < AndroidUtilities.dp(10)) {
+            if (System.currentTimeMillis() - tapTime <= ViewConfiguration.getTapTimeout() && MathUtils.distance(tapX, tapY, ev.getX() + offsetX, ev.getY()) < AndroidUtilities.dp(10)) {
                 if (isAtDual(tapX, tapY)) {
                     switchCamera();
                     lastFocusToPoint = null;
@@ -276,6 +273,8 @@ public class DualCameraView extends CameraView {
                 touch.x = ev.getX(0);
                 touch.y = ev.getY(0);
             }
+            int offsetX = (getTextureView().getMeasuredWidth() - getMeasuredWidth()) / 2;
+            touch.x += offsetX;
             if (multitouch != currentMultitouch) {
                 lastTouch.x = touch.x;
                 lastTouch.y = touch.y;
@@ -288,7 +287,7 @@ public class DualCameraView extends CameraView {
             float ltx = lastTouch.x, lty = lastTouch.y;
             if (ev.getAction() == MotionEvent.ACTION_DOWN) {
                 touchMatrix.set(matrix);
-                touchMatrix.postConcat(toScreen);
+                touchMatrix.postConcat(toFrame);
                 rotationDiff = 0;
                 snappedRotation = false;
                 doNotSpanRotation = false;
@@ -344,10 +343,10 @@ public class DualCameraView extends CameraView {
                         snappedRotation = false;
                     }
                 }
-                if (cx < 0) {
-                    finalMatrix.postTranslate(-cx, 0);
-                } else if (cx > getWidth()) {
-                    finalMatrix.postTranslate(getWidth() - cx, 0);
+                if (cx < offsetX) {
+                    finalMatrix.postTranslate(-cx + offsetX, 0);
+                } else if (cx > getWidth() + offsetX) {
+                    finalMatrix.postTranslate(getWidth() + offsetX - cx, 0);
                 }
                 if (cy < 0) {
                     finalMatrix.postTranslate(0, -cy);

@@ -121,6 +121,8 @@ public class RecordControl extends View implements FlashViews.Invertable {
     private long recordingStart;
     private long lastDuration;
 
+    private boolean hasMaxDuration = true;
+
     private final Path checkPath = new Path();
     private final Point check1 = new Point(-dpf2(29/3.0f), dpf2(7/3.0f));
     private final Point check2 = new Point(-dpf2(8.5f/3.0f), dpf2(26/3.0f));
@@ -433,31 +435,34 @@ public class RecordControl extends View implements FlashViews.Invertable {
         }
 
         long duration = System.currentTimeMillis() - recordingStart;
-        float recordEndT = recording ? 0 : 1f - recordingLongT;
-        float sweepAngle = duration / (float) MAX_DURATION * 360;
 
-        float recordingLoading = this.recordingLoadingT.set(this.recordingLoading);
+        if (hasMaxDuration) {
+            float recordEndT = recording ? 0 : 1f - recordingLongT;
+            float sweepAngle = duration / (float) MAX_DURATION * 360;
 
-        outlineFilledPaint.setStrokeWidth(strokeWidth);
-        outlineFilledPaint.setAlpha((int) (0xFF * Math.max(.7f * recordingLoading, 1f - recordEndT)));
+            float recordingLoading = this.recordingLoadingT.set(this.recordingLoading);
 
-        if (recordingLoading <= 0) {
-            canvas.drawArc(AndroidUtilities.rectTmp, -90, sweepAngle, false, outlineFilledPaint);
-        } else {
-            final long now = SystemClock.elapsedRealtime();
-            CircularProgressDrawable.getSegments((now - recordingLoadingStart) % 5400, loadingSegments);
-            invalidate();
-            float fromAngle = loadingSegments[0], toAngle = loadingSegments[1];
+            outlineFilledPaint.setStrokeWidth(strokeWidth);
+            outlineFilledPaint.setAlpha((int) (0xFF * Math.max(.7f * recordingLoading, 1f - recordEndT)));
+
+            if (recordingLoading <= 0) {
+                canvas.drawArc(AndroidUtilities.rectTmp, -90, sweepAngle, false, outlineFilledPaint);
+            } else {
+                final long now = SystemClock.elapsedRealtime();
+                CircularProgressDrawable.getSegments((now - recordingLoadingStart) % 5400, loadingSegments);
+                invalidate();
+                float fromAngle = loadingSegments[0], toAngle = loadingSegments[1];
 
             float center = (fromAngle + toAngle) / 2f;
             float amplitude = Math.abs(toAngle - fromAngle) / 2f;
 
-            if (this.recordingLoading) {
-                center = lerp(-90 + sweepAngle / 2f, center, recordingLoading);
-                amplitude = lerp(sweepAngle / 2f, amplitude, recordingLoading);
-            }
+                if (this.recordingLoading) {
+                    center = lerp(-90 + sweepAngle / 2f, center, recordingLoading);
+                    amplitude = lerp(sweepAngle / 2f, amplitude, recordingLoading);
+                }
 
-            canvas.drawArc(AndroidUtilities.rectTmp, center - amplitude, amplitude * 2, false, outlineFilledPaint);
+                canvas.drawArc(AndroidUtilities.rectTmp, center - amplitude, amplitude * 2, false, outlineFilledPaint);
+            }
         }
 
         if (recording) {
@@ -466,7 +471,7 @@ public class RecordControl extends View implements FlashViews.Invertable {
             if (duration / 1000L != lastDuration / 1000L) {
                 delegate.onVideoDuration(duration / 1000L);
             }
-            if (duration >= MAX_DURATION) {
+            if (hasMaxDuration && duration >= MAX_DURATION) {
                 post(() -> {
                     recording = false;
                     longpressRecording = false;
@@ -824,5 +829,9 @@ public class RecordControl extends View implements FlashViews.Invertable {
             this.recordingLoadingT.set(false, true);
         }
         invalidate();
+    }
+
+    public void setHasMaxDuration(boolean hasMaxDuration) {
+        this.hasMaxDuration = hasMaxDuration;
     }
 }

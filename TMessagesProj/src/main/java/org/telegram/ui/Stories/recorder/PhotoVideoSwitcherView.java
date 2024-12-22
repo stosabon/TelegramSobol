@@ -37,6 +37,8 @@ public class PhotoVideoSwitcherView extends View implements FlashViews.Invertabl
     private float mLastX;
     private long mLastTouchTime;
     private boolean mIsScrolling, mIsTouch;
+
+    private boolean isInsidePreview;
     private ValueAnimator animator;
 
     public PhotoVideoSwitcherView(Context context) {
@@ -250,8 +252,17 @@ public class PhotoVideoSwitcherView extends View implements FlashViews.Invertabl
         return scrolledEnough || (scrolledEnough = Math.abs(mode - modeAtTouchDown) > .1f);
     }
 
+    public void setIsInsidePreview(boolean isInsidePreview) {
+        this.isInsidePreview = isInsidePreview;
+    }
+
     public void setInvert(float invert) {
-        selectorPaint.setColor(ColorUtils.blendARGB(0x32ffffff, 0x20000000, invert));
+        if (isInsidePreview) {
+            // In provided design image color looks the same as it is in record control button
+            selectorPaint.setColor(ColorUtils.blendARGB(0x64000000, 0x16000000, invert));
+        } else {
+            selectorPaint.setColor(ColorUtils.blendARGB(0x32ffffff, 0x20000000, invert));
+        }
         textPaint.setColor(ColorUtils.blendARGB(0xffffffff, 0xff000000, invert));
     }
 }

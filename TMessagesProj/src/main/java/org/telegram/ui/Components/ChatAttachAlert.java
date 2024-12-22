@@ -4979,7 +4979,9 @@ public class ChatAttachAlert extends BottomSheet implements NotificationCenter.N
         if (!(baseFragment instanceof ChatActivity && avatarPicker != 2)) {
             commentTextView.setVisibility(allowEnterCaption ? View.VISIBLE : View.INVISIBLE);
         }
-        photoLayout.onInit(videosEnabled, photosEnabled, documentsEnabled);
+        if (!isStoryLocationPicker && !isStoryAudioPicker) {
+            photoLayout.onInit(videosEnabled, photosEnabled, documentsEnabled);
+        }
         commentTextView.hidePopup(true);
         topCommentTextView.hidePopup(true);
         enterCommentEventSent = false;

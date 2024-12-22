@@ -283,8 +283,10 @@ import org.telegram.ui.Components.ViewHelper;
 import org.telegram.ui.Components.spoilers.SpoilersTextView;
 import org.telegram.ui.Stories.DarkThemeResourceProvider;
 import org.telegram.ui.Stories.recorder.CaptionContainerView;
+import org.telegram.ui.Stories.recorder.GalleryListView;
 import org.telegram.ui.Stories.recorder.KeyboardNotifier;
 import org.telegram.ui.Stories.recorder.StoryEntry;
+import org.telegram.ui.Stories.recorder.StoryPrivacySelector;
 
 import java.io.ByteArrayInputStream;
 import java.io.File;
@@ -4530,11 +4532,31 @@ public class PhotoViewer implements NotificationCenter.NotificationCenterDelegat
                 }
                 widthSize -= getPaddingLeft() + getPaddingRight();
                 heightSize -= getPaddingBottom();
+
+                if (photoPaintView != null) {
+                    if (photoPaintView.emojiView != null) {
+                        photoPaintView.emojiView.measure(
+                                MeasureSpec.makeMeasureSpec(widthSize, MeasureSpec.EXACTLY),
+                                MeasureSpec.makeMeasureSpec(photoPaintView.emojiView.getLayoutParams().height, MeasureSpec.EXACTLY)
+                        );
+                    }
+                    if (photoPaintView.reactionLayout != null) {
+                        measureChild(photoPaintView.reactionLayout, widthMeasureSpec, heightMeasureSpec);
+                        if (photoPaintView.reactionLayout.getReactionsWindow() != null) {
+                            measureChild(photoPaintView.reactionLayout.getReactionsWindow().windowView, widthMeasureSpec, heightMeasureSpec);
+                        }
+                    }
+                }
+
                 setMeasuredDimension(widthSize, heightSize);
                 ViewGroup.LayoutParams layoutParams = animatingImageView.getLayoutParams();
                 animatingImageView.measure(MeasureSpec.makeMeasureSpec(layoutParams.width, MeasureSpec.AT_MOST), MeasureSpec.makeMeasureSpec(layoutParams.height, MeasureSpec.AT_MOST));
                 containerView.measure(MeasureSpec.makeMeasureSpec(widthSize, MeasureSpec.EXACTLY), MeasureSpec.makeMeasureSpec(heightSize, MeasureSpec.EXACTLY));
                 navigationBar.measure(MeasureSpec.makeMeasureSpec(widthSize, MeasureSpec.EXACTLY), MeasureSpec.makeMeasureSpec(navigationBarHeight, MeasureSpec.EXACTLY));
+
+                if (galleryListView != null) {
+                    galleryListView.measure(MeasureSpec.makeMeasureSpec(widthSize, MeasureSpec.EXACTLY), MeasureSpec.makeMeasureSpec(heightSize, MeasureSpec.EXACTLY));
+                }
             }
 
             @SuppressWarnings("DrawAllocation")
@@ -4575,6 +4597,24 @@ public class PhotoViewer implements NotificationCenter.NotificationCenterDelegat
                 if (dontResetZoomOnFirstLayout) {
                     setScaleToFill();
                     dontResetZoomOnFirstLayout = false;
+                }
+                final int W = right - left;
+                final int H = bottom - top;
+                if (photoPaintView != null) {
+                    if (photoPaintView.emojiView != null) {
+                        photoPaintView.emojiView.layout(insets.left, H - insets.bottom - photoPaintView.emojiView.getMeasuredHeight(), W - insets.right, H - insets.bottom);
+                    }
+                    if (photoPaintView.reactionLayout != null) {
+                        photoPaintView.reactionLayout.layout(insets.left, insets.top, insets.left + photoPaintView.reactionLayout.getMeasuredWidth(), insets.top + photoPaintView.reactionLayout.getMeasuredHeight());
+                        View reactionsWindowView = photoPaintView.reactionLayout.getReactionsWindow() != null ? photoPaintView.reactionLayout.getReactionsWindow().windowView : null;
+                        if (reactionsWindowView != null) {
+                            reactionsWindowView.layout(insets.left, insets.top, insets.left + reactionsWindowView.getMeasuredWidth(), insets.top + reactionsWindowView.getMeasuredHeight());
+                        }
+                    }
+                }
+
+                if (galleryListView != null) {
+                    galleryListView.layout((W - galleryListView.getMeasuredWidth()) / 2, 0, (W + galleryListView.getMeasuredWidth()) / 2, H);
                 }
             }
 
@@ -4636,6 +4676,9 @@ public class PhotoViewer implements NotificationCenter.NotificationCenterDelegat
 
             @Override
             protected void dispatchDraw(Canvas canvas) {
+                if (photoPaintView != null) {
+                    photoPaintView.onParentPreDraw();
+                }
                 super.dispatchDraw(canvas);
                 if (parentChatActivity != null) {
                     View undoView = parentChatActivity.getUndoView();
@@ -12070,7 +12113,7 @@ public class PhotoViewer implements NotificationCenter.NotificationCenterDelegat
                 photoPaintView.updatePlusEmojiKeyboardButton();
             });
             paintKeyboardNotifier.ignore(currentEditMode != EDIT_MODE_PAINT);
-            photoPaintView = new LPhotoPaintView(parentActivity, parentActivity, currentAccount, bitmap, isCurrentVideo ? null : centerImage.getBitmap(), centerImage.getOrientation(), editState.mediaEntities, state, () -> paintingOverlay.hideBitmap(), resourcesProvider) {
+            photoPaintView = new LPhotoPaintView(parentActivity, parentActivity, currentAccount, bitmap, isCurrentVideo ? null : centerImage.getBitmap(), centerImage.getOrientation(), editState.mediaEntities, state, () -> paintingOverlay.hideBitmap(), resourcesProvider, windowView, blurManager, isCurrentVideo) {
                 @Override
                 protected void onOpenCloseStickersAlert(boolean open) {
                     if (videoPlayer == null) {
@@ -12121,7 +12164,15 @@ public class PhotoViewer implements NotificationCenter.NotificationCenterDelegat
 //                        makeFocusable();
                     }
                 }
-            };
+
+                @Override
+                protected void onGalleryClick() {
+                    super.onGalleryClick();
+                    captionEdit.keyboardNotifier.ignore(true);
+                    destroyGalleryListView();
+                    createGalleryListView(true);
+                    animateGalleryListView(true);
+                }};
             containerView.addView(photoPaintView.getView(), LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT));
             photoPaintView.setOnDoneButtonClickedListener(() -> {
                 savedState = null;
@@ -12137,6 +12188,196 @@ public class PhotoViewer implements NotificationCenter.NotificationCenterDelegat
 //            photoPaintView.setClipChildren(sendPhotoType != SELECT_TYPE_STICKER);
         }
     }
+    private GalleryListView galleryListView;
+    private MediaController.AlbumEntry lastGallerySelectedAlbum;
+    private Runnable galleryLayouted;
+    private ValueAnimator galleryOpenCloseAnimator;
+    private SpringAnimation galleryOpenCloseSpringAnimator;
+
+    private void createGalleryListView(boolean forAddingPart) {
+        if (galleryListView != null || activityContext == null) {
+            return;
+        }
+
+        galleryListView = new GalleryListView(currentAccount, activityContext, resourcesProvider, lastGallerySelectedAlbum, forAddingPart) {
+            @Override
+            public void setTranslationY(float translationY) {
+                super.setTranslationY(translationY);
+                //if (applyContainerViewTranslation2) {
+                    final float amplitude = windowView.getMeasuredHeight() - galleryListView.top();
+                    float t = Utilities.clamp(1f - translationY / amplitude, 1, 0);
+                    //containerView.setTranslationY2(t * dp(-32));
+                    containerView.setAlpha(1 - .6f * t);
+                    actionBarContainer.setAlpha(1f - t);
+                //}
+            }
+
+            @Override
+            public void firstLayout() {
+                galleryListView.setTranslationY(windowView.getMeasuredHeight() - galleryListView.top());
+                if (galleryLayouted != null) {
+                    galleryLayouted.run();
+                    galleryLayouted = null;
+                }
+            }
+
+            @Override
+            protected void onFullScreen(boolean isFullscreen) {
+                if (isFullscreen) {
+                    AndroidUtilities.runOnUIThread(() -> {
+                        //destroyCameraView(true);
+                        //cameraViewThumb.setImageDrawable(getCameraThumb());
+                    });
+                }
+            }
+
+            @Override
+            public boolean dispatchTouchEvent(MotionEvent ev) {
+                if (ev.getAction() == MotionEvent.ACTION_DOWN && ev.getY() < top()) {
+                    //galleryClosing = true;
+                    animateGalleryListView(false);
+                    return true;
+                }
+                return super.dispatchTouchEvent(ev);
+            }
+        };
+        galleryListView.allowSearch(false);
+        galleryListView.setOnBackClickListener(() -> {
+            animateGalleryListView(false);
+            lastGallerySelectedAlbum = null;
+        });
+        galleryListView.setOnSelectListener((entry, blurredBitmap) -> {
+            //if (entry == null || galleryListViewOpening != null || scrollingY || !isGalleryOpen()) {
+                //return;
+            //}
+
+            if (forAddingPart) {
+                //if (outputEntry == null) {
+                   // return;
+                //}
+                //createPhotoPaintView();
+                //outputEntry.editedMedia = true;
+                if (entry instanceof MediaController.PhotoEntry) {
+                    MediaController.PhotoEntry photoEntry = (MediaController.PhotoEntry) entry;
+                    photoPaintView.appearAnimation(photoPaintView.createPhoto(photoEntry.path, false));
+                } else if (entry instanceof TLObject) {
+                    //photoPaintView.appearAnimation(photoPaintView.createPhoto((TLObject) entry, false));
+                }
+                animateGalleryListView(false);
+            }
+
+            if (galleryListView != null) {
+                //lastGalleryScrollPosition = galleryListView.layoutManager.onSaveInstanceState();
+                lastGallerySelectedAlbum = galleryListView.getSelectedAlbum();
+            }
+        });
+        //if (lastGalleryScrollPosition != null) {
+        //    galleryListView.layoutManager.onRestoreInstanceState(lastGalleryScrollPosition);
+        //}
+        windowView.addView(galleryListView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT, Gravity.FILL));
+    }
+
+    private void animateGalleryListView(boolean open) {
+        //wasGalleryOpen = open;
+        //if (galleryListViewOpening != null && galleryListViewOpening == open) {
+        //    return;
+        //}
+
+        if (galleryListView == null) {
+            if (open) {
+                createGalleryListView(false);
+            }
+            if (galleryListView == null) {
+                return;
+            }
+        }
+
+        if (galleryListView.firstLayout) {
+            galleryLayouted = () -> animateGalleryListView(open);
+            return;
+        }
+
+        if (galleryOpenCloseAnimator != null) {
+            galleryOpenCloseAnimator.cancel();
+            galleryOpenCloseAnimator = null;
+        }
+        if (galleryOpenCloseSpringAnimator != null) {
+            galleryOpenCloseSpringAnimator.cancel();
+            galleryOpenCloseSpringAnimator = null;
+        }
+
+        if (galleryListView == null) {
+            if (open) {
+                createGalleryListView(false);
+            }
+            if (galleryListView == null) {
+                return;
+            }
+        }
+        if (galleryListView != null) {
+            galleryListView.ignoreScroll = false;
+        }
+
+        //galleryListViewOpening = open;
+
+        float from = galleryListView.getTranslationY();
+        float to = open ? 0 : windowView.getHeight() - galleryListView.top() + AndroidUtilities.navigationBarHeight * 2.5f;
+        float fulldist = Math.max(1, windowView.getHeight());
+
+        galleryListView.ignoreScroll = !open;
+
+        //applyContainerViewTranslation2 = containerViewBackAnimator == null;
+        if (open) {
+            galleryOpenCloseSpringAnimator = new SpringAnimation(galleryListView, DynamicAnimation.TRANSLATION_Y, to);
+            galleryOpenCloseSpringAnimator.getSpring().setDampingRatio(0.75f);
+            galleryOpenCloseSpringAnimator.getSpring().setStiffness(350.0f);
+            galleryOpenCloseSpringAnimator.addEndListener((a, canceled, c, d) -> {
+                if (canceled) {
+                    return;
+                }
+                galleryListView.setTranslationY(to);
+                galleryListView.ignoreScroll = false;
+                galleryOpenCloseSpringAnimator = null;
+                //galleryListViewOpening = null;
+            });
+            galleryOpenCloseSpringAnimator.start();
+        } else {
+            galleryOpenCloseAnimator = ValueAnimator.ofFloat(from, to);
+            galleryOpenCloseAnimator.addUpdateListener(anm -> {
+                galleryListView.setTranslationY((float) anm.getAnimatedValue());
+            });
+            galleryOpenCloseAnimator.addListener(new AnimatorListenerAdapter() {
+                @Override
+                public void onAnimationEnd(Animator animation) {
+                    windowView.removeView(galleryListView);
+                    galleryListView = null;
+                    galleryOpenCloseAnimator = null;
+                    //galleryListViewOpening = null;
+                    //captionEdit.keyboardNotifier.ignore(currentPage != PAGE_PREVIEW);
+                }
+            });
+            galleryOpenCloseAnimator.setDuration(450L);
+            galleryOpenCloseAnimator.setInterpolator(CubicBezierInterpolator.EASE_OUT_QUINT);
+            galleryOpenCloseAnimator.start();
+        }
+    }
+
+        private void destroyGalleryListView() {
+            if (galleryListView == null) {
+                return;
+            }
+            windowView.removeView(galleryListView);
+            galleryListView = null;
+            if (galleryOpenCloseAnimator != null) {
+                galleryOpenCloseAnimator.cancel();
+                galleryOpenCloseAnimator = null;
+            }
+            if (galleryOpenCloseSpringAnimator != null) {
+                galleryOpenCloseSpringAnimator.cancel();
+                galleryOpenCloseSpringAnimator = null;
+            }
+            //galleryListViewOpening = null;
+        }
 
     private ValueAnimator translateYAnimator;
     private void translateY(float ty) {
