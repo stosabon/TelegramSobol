@@ -45,6 +45,7 @@ import org.telegram.messenger.ImageLocation;
 import org.telegram.messenger.LocaleController;
 import org.telegram.messenger.MessageObject;
 import org.telegram.messenger.MessagesController;
+import org.telegram.messenger.NotificationCenter;
 import org.telegram.messenger.R;
 import org.telegram.messenger.SvgHelper;
 import org.telegram.messenger.UserConfig;
@@ -78,11 +79,12 @@ import org.telegram.ui.Components.ScamDrawable;
 import org.telegram.ui.Components.SharedMediaLayout;
 import org.telegram.ui.Components.VectorAvatarThumbDrawable;
 import org.telegram.tgnet.TLRPC;
+import org.telegram.ui.Components.voip.VoIPHelper;
 import org.telegram.ui.Stars.StarsController;
 
 import java.util.concurrent.CountDownLatch;
 
-public class ProfileActivityV2 extends BaseFragment {
+public class ProfileActivityV2 extends BaseFragment implements NotificationCenter.NotificationCenterDelegate {
 
     private ProfileContainerView profileContainer;
     private AvatarDrawable avatarDrawable;
@@ -1084,32 +1086,32 @@ public class ProfileActivityV2 extends BaseFragment {
         }
         if (joinActionVisible) {
             // Should be localised
-            actionsContainer.addAction(R.drawable.join, "Join");
+            actionsContainer.addAction(R.drawable.join, "Join", v -> {});
         }
         if (messageActionVisible) {
-            actionsContainer.addAction(R.drawable.message, LocaleController.getString(R.string.Message));
+            actionsContainer.addAction(R.drawable.message, LocaleController.getString(R.string.Message), v -> onMessageClick());
         }
         if (notificationsActionVisible) {
             if (getMessagesController().isDialogMuted(getDialogId(), topicId)) {
-                actionsContainer.addAction(R.drawable.unmute, LocaleController.getString(R.string.Unmute));
+                actionsContainer.addAction(R.drawable.unmute, LocaleController.getString(R.string.Unmute), v -> {});
             } else {
-                actionsContainer.addAction(R.drawable.mute, LocaleController.getString(R.string.Mute));
+                actionsContainer.addAction(R.drawable.mute, LocaleController.getString(R.string.Mute), v -> {});
             }
         }
         if (callActionVisible) {
-            actionsContainer.addAction(R.drawable.call, LocaleController.getString(R.string.Call));
+            actionsContainer.addAction(R.drawable.call, LocaleController.getString(R.string.Call), v -> onCallClick(false));
         }
         if (videoCallActionVisible) {
             // Should be localised
-            actionsContainer.addAction(R.drawable.video, "Video");
+            actionsContainer.addAction(R.drawable.video, "Video", v -> onCallClick(true));
         }
 
         if (giftActionVisible) {
             // Should be localised
-            actionsContainer.addAction(R.drawable.gift, "Gift");
+            actionsContainer.addAction(R.drawable.gift, "Gift", v -> {});
         }
         if (shareActionVisible) {
-            actionsContainer.addAction(R.drawable.share, LocaleController.getString(R.string.BotShare));
+            actionsContainer.addAction(R.drawable.share, LocaleController.getString(R.string.BotShare), v -> {});
         }
     }
 
@@ -1298,6 +1300,11 @@ public class ProfileActivityV2 extends BaseFragment {
         }
     }
 
+    @Override
+    public void didReceivedNotification(int id, int account, Object... args) {
+
+    }
+
     private class ProfileContainerView extends FrameLayout {
 
         public ProfileContainerView(Context context) {
@@ -1317,6 +1324,42 @@ public class ProfileActivityV2 extends BaseFragment {
         public ActionsView(Context context) {
             super(context);
         }
+    }
+
+    private void onCallClick(boolean isVideoCall) {
+        if (userId != 0) {
+            TLRPC.User user = getMessagesController().getUser(userId);
+            if (user != null) {
+                VoIPHelper.startCall(user, isVideoCall, userInfo != null && userInfo.video_calls_available, getParentActivity(), userInfo, getAccountInstance());
+            }
+        } else if (chatId != 0) {
+            ChatObject.Call call = getMessagesController().getGroupCall(chatId, false);
+            if (call == null) {
+                VoIPHelper.showGroupCallAlert(this, currentChat, null, false, getAccountInstance());
+            } else {
+                VoIPHelper.startCall(currentChat, null, null, false, getParentActivity(), this, getAccountInstance());
+            }
+        }
+    }
+
+    private void onMessageClick() {
+        if (userId != 0) {
+            finishFragment();
+        } else {
+            openDiscussion();
+        }
+    }
+
+    private void openDiscussion() {
+        if (chatInfo == null || chatInfo.linked_chat_id == 0) {
+            return;
+        }
+        Bundle args = new Bundle();
+        args.putLong("chat_id", chatInfo.linked_chat_id);
+        if (!getMessagesController().checkCanOpenChat(args, ProfileActivityV2.this)) {
+            return;
+        }
+        presentFragment(new ChatActivity(args));
     }
 
     private class ListAdapter extends RecyclerListView.SelectionAdapter {
@@ -1409,18 +1452,19 @@ public class ProfileActivityV2 extends BaseFragment {
             }
         }
 
-        public void addAction(int iconResId, String text) {
-            View actionView = createActionView(iconResId, text);
+        public void addAction(int iconResId, String text, View.OnClickListener clickListener) {
+            View actionView = createActionView(iconResId, text, clickListener);
             addView(actionView);
         }
 
-        private View createActionView(int drawableResId, String text) {
+        private View createActionView(int drawableResId, String text, View.OnClickListener clickListener) {
             Context context = getContext();
             LinearLayout container = new LinearLayout(context);
             container.setLayoutParams(new LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.MATCH_PARENT));
             container.setOrientation(LinearLayout.VERTICAL);
             container.setGravity(Gravity.CENTER);
             container.setClickable(true);
+            container.setOnClickListener(clickListener);
 
             ImageView icon = new ImageView(context);
             icon.setImageDrawable(ContextCompat.getDrawable(context, drawableResId));
