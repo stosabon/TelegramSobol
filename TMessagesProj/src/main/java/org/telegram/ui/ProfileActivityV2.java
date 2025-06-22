@@ -55,7 +55,11 @@ public class ProfileActivityV2 extends BaseFragment {
     private int middleStateProfileExtraHeight;
     private AvatarDrawable avatarDrawable;
     private float avatarAnimationProgress;
+    private float listOffset;
     private AvatarImageView avatarImage;
+    private SimpleTextView[] nameTextView = new SimpleTextView[2];
+    private String nameTextViewRightDrawableContentDescription = null;
+    private String nameTextViewRightDrawable2ContentDescription = null;
     private ActionBarMenuItem otherItem;
     private Theme.ResourcesProvider resourcesProvider;
     private RecyclerListView listView;
@@ -87,24 +91,33 @@ public class ProfileActivityV2 extends BaseFragment {
         if (lastFragment instanceof ChatActivity && ((ChatActivity) lastFragment).themeDelegate != null && ((ChatActivity) lastFragment).themeDelegate.getCurrentTheme() != null) {
             resourcesProvider = lastFragment.getResourceProvider();
         }
-        middleStateProfileExtraHeight = AndroidUtilities.dp(128f);
+        middleStateProfileExtraHeight = AndroidUtilities.dp(200f);
         avatarAnimationProgress = 1f;
+        listOffset = middleStateProfileExtraHeight;
         fragmentView = new FrameLayout(context) {
             @Override
             protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
                 super.onMeasure(widthMeasureSpec, heightMeasureSpec);
+                avatarAnimationProgress = (float) listOffset / middleStateProfileExtraHeight;
                 final int actionBarHeight = ActionBar.getCurrentActionBarHeight() + (actionBar.getOccupyStatusBar() ? AndroidUtilities.statusBarHeight : 0);
                 int newProfileContainerHeight = (int) (middleStateProfileExtraHeight * avatarAnimationProgress);
                 profileContainer.measure(View.MeasureSpec.makeMeasureSpec(fragmentView.getMeasuredWidth(), MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(actionBarHeight + newProfileContainerHeight, MeasureSpec.EXACTLY));
 
                 float avatarScale = AndroidUtilities.lerp(1f, (42f + 42f + 18f) / 42f, avatarAnimationProgress);
-                Log.e("STAS", "avatarScale " + avatarScale);
                 avatarImage.measure(
-                        View.MeasureSpec.makeMeasureSpec(AndroidUtilities.dp(42f), MeasureSpec.EXACTLY),
-                        View.MeasureSpec.makeMeasureSpec(AndroidUtilities.dp(42f), MeasureSpec.EXACTLY)
+                        View.MeasureSpec.makeMeasureSpec((int) (AndroidUtilities.dp(42f) * avatarScale), MeasureSpec.EXACTLY),
+                        View.MeasureSpec.makeMeasureSpec((int) (AndroidUtilities.dp(42f) * avatarScale), MeasureSpec.EXACTLY)
                 );
-                avatarImage.setScaleX(avatarScale);
-                avatarImage.setScaleY(avatarScale);
+                avatarImage.setRoundRadius((int) (AndroidUtilities.dp(42f) * avatarScale / 2));
+                for (int a = 0; a < nameTextView.length; a++) {
+                    if (nameTextView[a] == null) {
+                        continue;
+                    }
+                    nameTextView[a].measure(
+                            MeasureSpec.makeMeasureSpec((int) nameTextView[a].getPaint().measureText(nameTextView[a].getText().toString() + nameTextView[1].getSideDrawablesSize()), MeasureSpec.EXACTLY),
+                            MeasureSpec.makeMeasureSpec(MeasureSpec.getSize(heightMeasureSpec), MeasureSpec.AT_MOST
+                    ));
+                }
                 listView.measure(
                         View.MeasureSpec.makeMeasureSpec(fragmentView.getMeasuredWidth(), MeasureSpec.EXACTLY),
                         View.MeasureSpec.makeMeasureSpec(fragmentView.getMeasuredHeight() - actionBarHeight, MeasureSpec.EXACTLY)
@@ -116,11 +129,31 @@ public class ProfileActivityV2 extends BaseFragment {
             protected void onLayout(boolean changed, int left, int top, int right, int bottom) {
                 super.onLayout(changed, left, top, right, bottom);
                 final int actionBarHeight = ActionBar.getCurrentActionBarHeight() + (actionBar.getOccupyStatusBar() ? AndroidUtilities.statusBarHeight : 0);
+                avatarAnimationProgress = (float) listOffset / middleStateProfileExtraHeight;
                 int newProfileContainerHeight = (int) (middleStateProfileExtraHeight * avatarAnimationProgress);
                 profileContainer.layout(0, 0, profileContainer.getMeasuredWidth(), actionBarHeight + newProfileContainerHeight);
                 int avatarStartX = profileContainer.getMeasuredWidth() / 2 - avatarImage.getMeasuredWidth()/ 2;
-                int avatarStartY = (int) (actionBarHeight * avatarAnimationProgress);
+                int avatarStartY = (int) ((actionBarHeight * avatarAnimationProgress) - (actionBarHeight * (1f - avatarAnimationProgress)));
+                float textScale = AndroidUtilities.lerp(1f, 1.67f, avatarAnimationProgress);
                 avatarImage.layout(avatarStartX, avatarStartY, avatarStartX + avatarImage.getMeasuredWidth(), avatarStartY + avatarImage.getMeasuredHeight());
+                for (int a = 0; a < nameTextView.length; a++) {
+                    if (nameTextView[a] == null) {
+                        continue;
+                    }
+                    int nameWidth = nameTextView[a].getMeasuredWidth();
+                    int nameStartX = profileContainer.getMeasuredWidth() / 2 - nameWidth / 2;
+                    int nameX = (int)(AndroidUtilities.lerp(AndroidUtilities.dpf2(64f), nameStartX, avatarAnimationProgress));
+                    int minNameY = (int) ((actionBar.getOccupyStatusBar() ? AndroidUtilities.statusBarHeight : 0) + ActionBar.getCurrentActionBarHeight() / 2.0f - 21 * AndroidUtilities.density + actionBar.getTranslationY());
+                    int nameY = Math.max(avatarImage.getBottom(), minNameY);
+                    nameTextView[a].layout(
+                            nameX,
+                            nameY,
+                            nameX + nameWidth,
+                            nameY + nameTextView[a].getMeasuredHeight()
+                    );
+                    nameTextView[a].setScaleX(textScale);
+                    nameTextView[a].setScaleY(textScale);
+                }
                 listView.layout(0, actionBarHeight, fragmentView.getMeasuredWidth(), actionBarHeight + listView.getMeasuredHeight());
             }
         };
@@ -138,6 +171,7 @@ public class ProfileActivityV2 extends BaseFragment {
         otherItem.setContentDescription(LocaleController.getString(R.string.AccDescrMoreOptions));
         otherItem.setIconColor(getThemedColor(Theme.key_actionBarDefaultIcon));
         initAvatar(context);
+        initNameTextView(context);
         profileContainer.addView(avatarImage, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT));
         return fragmentView;
     }
@@ -213,6 +247,51 @@ public class ProfileActivityV2 extends BaseFragment {
         return AndroidUtilities.dp(21);
     }
 
+    private void initNameTextView(Context context) {
+        for (int a = 0; a < nameTextView.length; a++) {
+            nameTextView[a] = new SimpleTextView(context) {
+                @Override
+                public void onInitializeAccessibilityNodeInfo(AccessibilityNodeInfo info) {
+                    super.onInitializeAccessibilityNodeInfo(info);
+                    if (isFocusable() && (nameTextViewRightDrawableContentDescription != null || nameTextViewRightDrawable2ContentDescription != null)) {
+                        StringBuilder s = new StringBuilder(getText());
+                        if (nameTextViewRightDrawable2ContentDescription != null) {
+                            if (s.length() > 0) s.append(", ");
+                            s.append(nameTextViewRightDrawable2ContentDescription);
+                        }
+                        if (nameTextViewRightDrawableContentDescription != null) {
+                            if (s.length() > 0) s.append(", ");
+                            s.append(nameTextViewRightDrawableContentDescription);
+                        }
+                        info.setText(s);
+                    }
+                }
+            };
+            if (a == 1) {
+                nameTextView[a].setTextColor(getThemedColor(Theme.key_profile_title));
+            } else {
+                nameTextView[a].setTextColor(getThemedColor(Theme.key_actionBarDefaultTitle));
+            }
+            nameTextView[a].setPadding(0, AndroidUtilities.dp(6), 0, AndroidUtilities.dp(a == 0 ? 12 : 4));
+            nameTextView[a].setTextSize(18);
+            nameTextView[a].setGravity(Gravity.LEFT);
+            nameTextView[a].setTypeface(AndroidUtilities.bold());
+            nameTextView[a].setLeftDrawableTopPadding(-AndroidUtilities.dp(1.3f));
+            nameTextView[a].setPivotX(0);
+            nameTextView[a].setPivotY(0);
+            nameTextView[a].setAlpha(a == 0 ? 0.0f : 1.0f);
+            if (a == 1) {
+                nameTextView[a].setScrollNonFitText(true);
+                nameTextView[a].setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+            }
+            nameTextView[a].setFocusable(a == 0);
+            nameTextView[a].setEllipsizeByGradient(true);
+            nameTextView[a].setRightDrawableOutside(a == 0);
+            nameTextView[a].setText("Text " + a);
+            profileContainer.addView(nameTextView[a], LayoutHelper.createFrame(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT));
+        }
+    }
+
     private void initListView(Context context) {
         listView = new RecyclerListView(context);
         layoutManager = new LinearLayoutManager(context);
@@ -245,9 +324,8 @@ public class ProfileActivityV2 extends BaseFragment {
                 if (top >= 0 && adapterPosition == 0) {
                     newOffset = top;
                 }
-                float newAvatarAnimationProgress = (float) newOffset / middleStateProfileExtraHeight;
-                if (avatarAnimationProgress != newAvatarAnimationProgress) {
-                    avatarAnimationProgress = newAvatarAnimationProgress;
+                if (listOffset != newOffset) {
+                    listOffset = newOffset;
                     profileContainer.requestLayout();
                 }
             }
