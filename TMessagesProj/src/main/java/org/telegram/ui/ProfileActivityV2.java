@@ -7,9 +7,6 @@ import static org.telegram.messenger.LocaleController.getString;
 import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.Color;
-import android.graphics.Paint;
-import android.graphics.PorterDuff;
-import android.graphics.RectF;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
 import android.graphics.drawable.StateListDrawable;
@@ -18,9 +15,6 @@ import android.os.Bundle;
 import android.text.SpannableString;
 import android.text.SpannableStringBuilder;
 import android.text.Spanned;
-import android.text.TextUtils;
-import android.util.Log;
-import android.util.Property;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
@@ -32,7 +26,6 @@ import android.widget.TextView;
 
 import androidx.annotation.NonNull;
 import androidx.core.content.ContextCompat;
-import androidx.core.graphics.ColorUtils;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
@@ -45,7 +38,6 @@ import org.telegram.messenger.FileLoader;
 import org.telegram.messenger.FileLog;
 import org.telegram.messenger.ImageLoader;
 import org.telegram.messenger.ImageLocation;
-import org.telegram.messenger.ImageReceiver;
 import org.telegram.messenger.LocaleController;
 import org.telegram.messenger.MessagesController;
 import org.telegram.messenger.R;
@@ -61,10 +53,7 @@ import org.telegram.ui.ActionBar.BaseFragment;
 import org.telegram.ui.ActionBar.SimpleTextView;
 import org.telegram.ui.ActionBar.Theme;
 import org.telegram.ui.Cells.HeaderCell;
-import org.telegram.ui.Components.AnimatedEmojiDrawable;
-import org.telegram.ui.Components.AnimatedFileDrawable;
 import org.telegram.ui.Components.AnimatedTextView;
-import org.telegram.ui.Components.AnimationProperties;
 import org.telegram.ui.Components.AvatarDrawable;
 import org.telegram.ui.Components.BackupImageView;
 import org.telegram.ui.Components.ChatActivityInterface;
@@ -74,7 +63,6 @@ import org.telegram.ui.Components.CrossfadeDrawable;
 import org.telegram.ui.Components.LayoutHelper;
 import org.telegram.ui.Components.LinkSpanDrawable;
 import org.telegram.ui.Components.MessagePrivateSeenView;
-import org.telegram.ui.Components.ProfileGalleryView;
 import org.telegram.ui.Components.RecyclerListView;
 import org.telegram.ui.Components.ScamDrawable;
 import org.telegram.ui.Components.SharedMediaLayout;
@@ -86,11 +74,11 @@ import java.util.concurrent.CountDownLatch;
 public class ProfileActivityV2 extends BaseFragment {
 
     private ProfileContainerView profileContainer;
-    private ActionsContainer actionsContainer;
-    private int middleStateProfileExtraHeight;
     private AvatarDrawable avatarDrawable;
     private float avatarAnimationProgress;
     private float listOffset;
+    private ActionsContainer actionsContainer;
+    private int middleStateProfileExtraHeight;
     private AvatarImageView avatarImage;
     private SimpleTextView[] nameTextView = new SimpleTextView[2];
     private String nameTextViewRightDrawableContentDescription = null;
@@ -105,6 +93,7 @@ public class ProfileActivityV2 extends BaseFragment {
 
     private boolean callActionVisible;
     private boolean videoCallActionVisible;
+    private boolean notificationsActionVisible; /** READY */
 
     private long chatId;
     private long userId;
@@ -216,8 +205,6 @@ public class ProfileActivityV2 extends BaseFragment {
                             nameY + nameTextView[a].getMeasuredHeight()
                     );
                     nameMaxBottom = Math.max(nameMaxBottom, nameY + nameTextView[a].getMeasuredHeight());
-                    //nameTextView[a].setScaleX(textScale);
-                    //nameTextView[a].setScaleY(textScale);
                 }
                 int onlineTextMaxBottom = nameMaxBottom;
                 for (int a = 0; a < onlineTextView.length; a++) {
@@ -233,8 +220,6 @@ public class ProfileActivityV2 extends BaseFragment {
                             onlineX + onlineWidth,
                             nameMaxBottom + onlineTextView[a].getMeasuredHeight()
                     );
-                    //onlineTextView[a].setScaleX(textScale);
-                    //onlineTextView[a].setScaleY(textScale);
                     onlineTextMaxBottom = Math.max(onlineTextMaxBottom, nameMaxBottom + onlineTextView[a].getMeasuredHeight());
                 }
                 actionsContainer.layout(AndroidUtilities.dp(16f), onlineTextMaxBottom + AndroidUtilities.dp(16f), profileContainer.getMeasuredWidth() - AndroidUtilities.dp(16f), onlineTextMaxBottom + actionsContainer.getMeasuredHeight() + AndroidUtilities.dp(16f) );
@@ -312,10 +297,10 @@ public class ProfileActivityV2 extends BaseFragment {
             //    avatarsViewPager.initIfEmpty(vectorAvatarThumbDrawable, imageLocation, thumbLocation, reload);
             //}
             if (vectorAvatar != null) {
-                //avatarImage.setImageDrawable(vectorAvatarThumbDrawable);
+                avatarImage.setImageDrawable(vectorAvatarThumbDrawable);
             } else if (videoThumbLocation != null && !user.photo.personal) {
-                //avatarImage.getImageReceiver().setVideoThumbIsSame(true);
-                //avatarImage.setImage(videoThumbLocation, "avatar", thumbLocation, "50_50", avatarDrawable, user);
+                avatarImage.getImageReceiver().setVideoThumbIsSame(true);
+                avatarImage.setImage(videoThumbLocation, "avatar", thumbLocation, "50_50", avatarDrawable, user);
             } else {
                 avatarImage.setImage(videoLocation, ImageLoader.AUTOPLAY_FILTER, thumbLocation, "50_50", avatarDrawable, user);
             }
@@ -800,6 +785,9 @@ public class ProfileActivityV2 extends BaseFragment {
     private void initActions(Context context) {
         actionsContainer = new ActionsContainer(context);
 
+        callActionVisible = false;
+        videoCallActionVisible = false;
+        notificationsActionVisible = false;
         if (userId != 0) {
             TLRPC.User user = getMessagesController().getUser(userId);
             if (user == null) {
@@ -809,6 +797,9 @@ public class ProfileActivityV2 extends BaseFragment {
                 if (userInfo != null && userInfo.phone_calls_available) {
                     callActionVisible = true;
                     videoCallActionVisible = Build.VERSION.SDK_INT >= 18 && userInfo.video_calls_available;
+                }
+                if (userId != getUserConfig().getClientUserId()) {
+                    notificationsActionVisible = true;
                 }
             }
         } else if (chatId != 0) {
@@ -823,6 +814,14 @@ public class ProfileActivityV2 extends BaseFragment {
                     ChatObject.Call call = getMessagesController().getGroupCall(chatId, false);
                     callActionVisible = call != null;
                 }
+            }
+            notificationsActionVisible = true;
+        }
+        if (notificationsActionVisible) {
+            if (getMessagesController().isDialogMuted(getDialogId(), topicId)) {
+                actionsContainer.addAction(R.drawable.unmute, LocaleController.getString(R.string.Unmute));
+            } else {
+                actionsContainer.addAction(R.drawable.mute, LocaleController.getString(R.string.Mute));
             }
         }
         if (callActionVisible) {
@@ -874,7 +873,6 @@ public class ProfileActivityV2 extends BaseFragment {
             nameTextView[a].setFocusable(a == 0);
             nameTextView[a].setEllipsizeByGradient(true);
             nameTextView[a].setRightDrawableOutside(a == 0);
-            nameTextView[a].setText("User name " + a);
             profileContainer.addView(nameTextView[a], LayoutHelper.createFrame(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT));
         }
     }
@@ -1122,7 +1120,6 @@ public class ProfileActivityV2 extends BaseFragment {
             for (int i = 0; i < childCount; i++) {
                 View child = getChildAt(i);
                 if (child.getVisibility() == GONE) continue;
-                // Account for margins in layout, but do not add extra spacing between items
                 int childLeft = x;
                 int childRight = childLeft + childWidth;
 
@@ -1131,7 +1128,6 @@ public class ProfileActivityV2 extends BaseFragment {
             }
         }
 
-        // Add action items programmatically
         public void addAction(int iconResId, String text) {
             View actionView = createActionView(iconResId, text);
             addView(actionView);
@@ -1162,16 +1158,16 @@ public class ProfileActivityV2 extends BaseFragment {
 
             GradientDrawable pressedDrawable = new GradientDrawable();
             pressedDrawable.setShape(GradientDrawable.RECTANGLE);
-            pressedDrawable.setColor(Color.argb(76, 0, 0, 0)); // 30% opacity
+            pressedDrawable.setColor(Color.argb(76, 0, 0, 0));
             pressedDrawable.setCornerRadius(AndroidUtilities.dp(12f));
 
             GradientDrawable defaultDrawable = new GradientDrawable();
             defaultDrawable.setShape(GradientDrawable.RECTANGLE);
-            defaultDrawable.setColor(Color.argb(38, 0, 0, 0)); // 15% opacity
+            defaultDrawable.setColor(Color.argb(38, 0, 0, 0));
             defaultDrawable.setCornerRadius(AndroidUtilities.dp(12f));
 
             stateListDrawable.addState(new int[]{android.R.attr.state_pressed}, pressedDrawable);
-            stateListDrawable.addState(new int[]{}, defaultDrawable); // Default state
+            stateListDrawable.addState(new int[]{}, defaultDrawable);
 
             container.setBackground(stateListDrawable);
 
