@@ -91,9 +91,10 @@ public class ProfileActivityV2 extends BaseFragment {
     private LinearLayoutManager layoutManager;
     private int rowCount;
 
+    private boolean messageActionVisible; /** Double check discuss text */
+    private boolean notificationsActionVisible; /** READY */
     private boolean callActionVisible;
     private boolean videoCallActionVisible;
-    private boolean notificationsActionVisible; /** READY */
 
     private long chatId;
     private long userId;
@@ -785,6 +786,7 @@ public class ProfileActivityV2 extends BaseFragment {
     private void initActions(Context context) {
         actionsContainer = new ActionsContainer(context);
 
+        messageActionVisible = false;
         callActionVisible = false;
         videoCallActionVisible = false;
         notificationsActionVisible = false;
@@ -801,6 +803,7 @@ public class ProfileActivityV2 extends BaseFragment {
                 if (userId != getUserConfig().getClientUserId()) {
                     notificationsActionVisible = true;
                 }
+                messageActionVisible = true;
             }
         } else if (chatId != 0) {
             TLRPC.Chat chat = getMessagesController().getChat(chatId);
@@ -816,6 +819,9 @@ public class ProfileActivityV2 extends BaseFragment {
                 }
             }
             notificationsActionVisible = true;
+        }
+        if (messageActionVisible) {
+            actionsContainer.addAction(R.drawable.message, LocaleController.getString(R.string.Message));
         }
         if (notificationsActionVisible) {
             if (getMessagesController().isDialogMuted(getDialogId(), topicId)) {
