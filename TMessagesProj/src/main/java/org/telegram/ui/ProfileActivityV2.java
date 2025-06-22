@@ -6,8 +6,10 @@ import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.RectF;
 import android.graphics.drawable.Drawable;
+import android.graphics.drawable.GradientDrawable;
 import android.os.Build;
 import android.os.Bundle;
+import android.text.TextUtils;
 import android.util.Log;
 import android.util.Property;
 import android.view.Gravity;
@@ -15,6 +17,9 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.view.accessibility.AccessibilityNodeInfo;
 import android.widget.FrameLayout;
+import android.widget.ImageView;
+import android.widget.LinearLayout;
+import android.widget.TextView;
 
 import androidx.annotation.NonNull;
 import androidx.core.content.ContextCompat;
@@ -43,6 +48,7 @@ import org.telegram.ui.Components.AvatarDrawable;
 import org.telegram.ui.Components.BackupImageView;
 import org.telegram.ui.Components.ChatActivityInterface;
 import org.telegram.ui.Components.LayoutHelper;
+import org.telegram.ui.Components.LinkSpanDrawable;
 import org.telegram.ui.Components.ProfileGalleryView;
 import org.telegram.ui.Components.RecyclerListView;
 import org.telegram.ui.Components.SharedMediaLayout;
@@ -52,6 +58,7 @@ import org.telegram.tgnet.TLRPC;
 public class ProfileActivityV2 extends BaseFragment {
 
     private ProfileContainerView profileContainer;
+    private ActionsContainer actionsContainer;
     private int middleStateProfileExtraHeight;
     private AvatarDrawable avatarDrawable;
     private float avatarAnimationProgress;
@@ -60,6 +67,7 @@ public class ProfileActivityV2 extends BaseFragment {
     private SimpleTextView[] nameTextView = new SimpleTextView[2];
     private String nameTextViewRightDrawableContentDescription = null;
     private String nameTextViewRightDrawable2ContentDescription = null;
+    private SimpleTextView[] onlineTextView = new SimpleTextView[4];
     private ActionBarMenuItem otherItem;
     private Theme.ResourcesProvider resourcesProvider;
     private RecyclerListView listView;
@@ -114,10 +122,23 @@ public class ProfileActivityV2 extends BaseFragment {
                         continue;
                     }
                     nameTextView[a].measure(
-                            MeasureSpec.makeMeasureSpec((int) nameTextView[a].getPaint().measureText(nameTextView[a].getText().toString() + nameTextView[1].getSideDrawablesSize()), MeasureSpec.EXACTLY),
-                            MeasureSpec.makeMeasureSpec(MeasureSpec.getSize(heightMeasureSpec), MeasureSpec.AT_MOST
-                    ));
+                            MeasureSpec.makeMeasureSpec((int) nameTextView[a].getPaint().measureText(nameTextView[a].getText().toString() + nameTextView[a].getSideDrawablesSize()), MeasureSpec.EXACTLY),
+                            MeasureSpec.makeMeasureSpec(MeasureSpec.getSize(heightMeasureSpec), MeasureSpec.AT_MOST)
+                    );
                 }
+                for (int a = 0; a < onlineTextView.length; a++) {
+                    if (onlineTextView[a] == null) {
+                        continue;
+                    }
+                    onlineTextView[a].measure(
+                            MeasureSpec.makeMeasureSpec((int) onlineTextView[a].getPaint().measureText(onlineTextView[a].getText().toString() + onlineTextView[a].getSideDrawablesSize()), MeasureSpec.EXACTLY),
+                            MeasureSpec.makeMeasureSpec(MeasureSpec.getSize(heightMeasureSpec), MeasureSpec.AT_MOST)
+                    );
+                }
+                actionsContainer.measure(
+                        View.MeasureSpec.makeMeasureSpec(profileContainer.getMeasuredWidth() - AndroidUtilities.dp(16f) * 2, MeasureSpec.EXACTLY),
+                        View.MeasureSpec.makeMeasureSpec((AndroidUtilities.dp(64f)), MeasureSpec.EXACTLY)
+                );
                 listView.measure(
                         View.MeasureSpec.makeMeasureSpec(fragmentView.getMeasuredWidth(), MeasureSpec.EXACTLY),
                         View.MeasureSpec.makeMeasureSpec(fragmentView.getMeasuredHeight() - actionBarHeight, MeasureSpec.EXACTLY)
@@ -133,27 +154,47 @@ public class ProfileActivityV2 extends BaseFragment {
                 int newProfileContainerHeight = (int) (middleStateProfileExtraHeight * avatarAnimationProgress);
                 profileContainer.layout(0, 0, profileContainer.getMeasuredWidth(), actionBarHeight + newProfileContainerHeight);
                 int avatarStartX = profileContainer.getMeasuredWidth() / 2 - avatarImage.getMeasuredWidth()/ 2;
-                int avatarStartY = (int) ((actionBarHeight * avatarAnimationProgress) - (actionBarHeight * (1f - avatarAnimationProgress)));
-                float textScale = AndroidUtilities.lerp(1f, 1.67f, avatarAnimationProgress);
+                int avatarStartY = (int) ((actionBarHeight - AndroidUtilities.dp(30f) - ((actionBarHeight + AndroidUtilities.dp(30f)) * (1f - avatarAnimationProgress))));
                 avatarImage.layout(avatarStartX, avatarStartY, avatarStartX + avatarImage.getMeasuredWidth(), avatarStartY + avatarImage.getMeasuredHeight());
+                int nameMaxBottom = (int) ((actionBar.getOccupyStatusBar() ? AndroidUtilities.statusBarHeight : 0) + ActionBar.getCurrentActionBarHeight() / 2.0f - 21 * AndroidUtilities.density + actionBar.getTranslationY());
                 for (int a = 0; a < nameTextView.length; a++) {
                     if (nameTextView[a] == null) {
                         continue;
                     }
                     int nameWidth = nameTextView[a].getMeasuredWidth();
                     int nameStartX = profileContainer.getMeasuredWidth() / 2 - nameWidth / 2;
-                    int nameX = (int)(AndroidUtilities.lerp(AndroidUtilities.dpf2(64f), nameStartX, avatarAnimationProgress));
                     int minNameY = (int) ((actionBar.getOccupyStatusBar() ? AndroidUtilities.statusBarHeight : 0) + ActionBar.getCurrentActionBarHeight() / 2.0f - 21 * AndroidUtilities.density + actionBar.getTranslationY());
                     int nameY = Math.max(avatarImage.getBottom(), minNameY);
+                    int nameX = (int)(AndroidUtilities.lerp(AndroidUtilities.dpf2(64f), nameStartX, avatarAnimationProgress));
                     nameTextView[a].layout(
                             nameX,
                             nameY,
                             nameX + nameWidth,
                             nameY + nameTextView[a].getMeasuredHeight()
                     );
-                    nameTextView[a].setScaleX(textScale);
-                    nameTextView[a].setScaleY(textScale);
+                    nameMaxBottom = Math.max(nameMaxBottom, nameY + nameTextView[a].getMeasuredHeight());
+                    //nameTextView[a].setScaleX(textScale);
+                    //nameTextView[a].setScaleY(textScale);
                 }
+                int onlineTextMaxBottom = nameMaxBottom;
+                for (int a = 0; a < onlineTextView.length; a++) {
+                    if (onlineTextView[a] == null) {
+                        continue;
+                    }
+                    int onlineWidth = onlineTextView[a].getMeasuredWidth();
+                    int onlineStartX = profileContainer.getMeasuredWidth() / 2 - onlineWidth / 2;
+                    int onlineX = (int)(AndroidUtilities.lerp(AndroidUtilities.dpf2(64f), onlineStartX, avatarAnimationProgress));
+                    onlineTextView[a].layout(
+                            onlineX,
+                            nameMaxBottom,
+                            onlineX + onlineWidth,
+                            nameMaxBottom + onlineTextView[a].getMeasuredHeight()
+                    );
+                    //onlineTextView[a].setScaleX(textScale);
+                    //onlineTextView[a].setScaleY(textScale);
+                    onlineTextMaxBottom = Math.max(onlineTextMaxBottom, nameMaxBottom + onlineTextView[a].getMeasuredHeight());
+                }
+                actionsContainer.layout(AndroidUtilities.dp(16f), onlineTextMaxBottom, profileContainer.getMeasuredWidth() - AndroidUtilities.dp(16f), onlineTextMaxBottom + actionsContainer.getMeasuredHeight() );
                 listView.layout(0, actionBarHeight, fragmentView.getMeasuredWidth(), actionBarHeight + listView.getMeasuredHeight());
             }
         };
@@ -172,7 +213,14 @@ public class ProfileActivityV2 extends BaseFragment {
         otherItem.setIconColor(getThemedColor(Theme.key_actionBarDefaultIcon));
         initAvatar(context);
         initNameTextView(context);
+        initOnlineTextView(context);
         profileContainer.addView(avatarImage, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT));
+        actionsContainer = new ActionsContainer(context);
+        actionsContainer.addAction(0, "Call");
+        actionsContainer.addAction(0, "Notifications");
+        actionsContainer.addAction(0, "Video");
+        actionsContainer.addAction(0, "Block");
+        profileContainer.addView(actionsContainer);
         return fragmentView;
     }
 
@@ -272,7 +320,7 @@ public class ProfileActivityV2 extends BaseFragment {
             } else {
                 nameTextView[a].setTextColor(getThemedColor(Theme.key_actionBarDefaultTitle));
             }
-            nameTextView[a].setPadding(0, AndroidUtilities.dp(6), 0, AndroidUtilities.dp(a == 0 ? 12 : 4));
+            nameTextView[a].setPadding(0, AndroidUtilities.dp(6), 0, 0);
             nameTextView[a].setTextSize(18);
             nameTextView[a].setGravity(Gravity.LEFT);
             nameTextView[a].setTypeface(AndroidUtilities.bold());
@@ -289,6 +337,32 @@ public class ProfileActivityV2 extends BaseFragment {
             nameTextView[a].setRightDrawableOutside(a == 0);
             nameTextView[a].setText("Text " + a);
             profileContainer.addView(nameTextView[a], LayoutHelper.createFrame(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT));
+        }
+    }
+
+    private void initOnlineTextView(Context context) {
+        for (int a = 0; a < onlineTextView.length; a++) {
+            if (a == 1) {
+                onlineTextView[a] = new LinkSpanDrawable.ClickableSmallTextView(context) {
+                };
+            } else {
+                onlineTextView[a] = new LinkSpanDrawable.ClickableSmallTextView(context);
+            }
+
+            onlineTextView[a].setEllipsizeByGradient(true);
+            onlineTextView[a].setTextColor(getThemedColor(Theme.key_avatar_subtitleInProfileBlue));
+            onlineTextView[a].setTextSize(14);
+            onlineTextView[a].setGravity(Gravity.LEFT);
+            onlineTextView[a].setAlpha(a == 0 ? 0.0f : 1.0f);
+            if (a == 1 || a == 2 || a == 3) {
+                //onlineTextView[a].setPadding(AndroidUtilities.dp(4), AndroidUtilities.dp(2), AndroidUtilities.dp(4), AndroidUtilities.dp(2));
+            }
+            if (a > 0) {
+                onlineTextView[a].setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+            }
+            onlineTextView[a].setFocusable(a == 0);
+            onlineTextView[a].setText("online");
+            profileContainer.addView(onlineTextView[a], LayoutHelper.createFrame(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT));
         }
     }
 
@@ -378,6 +452,13 @@ public class ProfileActivityV2 extends BaseFragment {
         }
     }
 
+    public static class ActionsView extends FrameLayout {
+
+        public ActionsView(Context context) {
+            super(context);
+        }
+    }
+
     private class ListAdapter extends RecyclerListView.SelectionAdapter {
 
         private Context mContext;
@@ -411,4 +492,105 @@ public class ProfileActivityV2 extends BaseFragment {
             return 30;
         }
     }
+
+    private class ActionsContainer extends ViewGroup {
+
+        public ActionsContainer(Context context) {
+            super(context);
+        }
+
+        @Override
+        protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
+            int childCount = getChildCount();
+            if (childCount == 0) {
+                super.onMeasure(widthMeasureSpec, heightMeasureSpec);
+                return;
+            }
+
+            int totalWidth = MeasureSpec.getSize(widthMeasureSpec);
+            int horizontalPadding = getPaddingLeft() + getPaddingRight();
+            int availableWidth = totalWidth - horizontalPadding;
+            int childWidth = availableWidth / childCount;
+
+            for (int i = 0; i < childCount; i++) {
+                View child = getChildAt(i);
+                if (child.getVisibility() == GONE) continue;
+                measureChild(
+                        child,
+                        MeasureSpec.makeMeasureSpec(childWidth, MeasureSpec.EXACTLY),
+                        MeasureSpec.makeMeasureSpec(getMeasuredHeight(), MeasureSpec.EXACTLY)
+                );
+            }
+
+            setMeasuredDimension(MeasureSpec.getSize(widthMeasureSpec), MeasureSpec.getSize(heightMeasureSpec));
+        }
+
+        @Override
+        protected void onLayout(boolean changed, int l, int t, int r, int b) {
+            int childCount = getChildCount();
+            if (childCount == 0) return;
+
+            int x = 0;
+
+            int totalWidth = r - l;
+            int itemSpace = AndroidUtilities.dp(8f);
+            int horizontalPadding = (childCount - 1) * itemSpace;
+            int availableWidth = totalWidth - horizontalPadding;
+            int childWidth = availableWidth / childCount;
+
+            for (int i = 0; i < childCount; i++) {
+                View child = getChildAt(i);
+                if (child.getVisibility() == GONE) continue;
+                // Account for margins in layout, but do not add extra spacing between items
+                int childLeft = x;
+                int childRight = childLeft + childWidth;
+
+                child.layout(childLeft, 0, childRight, getMeasuredHeight());
+                x += childWidth + itemSpace;
+            }
+        }
+
+        // Add action items programmatically
+        public void addAction(int iconResId, String text) {
+            View actionView = createActionView(iconResId, text);
+            addView(actionView);
+        }
+
+        private View createActionView(int drawableResId, String text) {
+            Context context = getContext();
+            LinearLayout container = new LinearLayout(context);
+            container.setLayoutParams(new LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.MATCH_PARENT));
+            container.setOrientation(LinearLayout.VERTICAL);
+            container.setGravity(Gravity.CENTER);
+
+            ImageView icon = new ImageView(context);
+            icon.setImageDrawable(ContextCompat.getDrawable(context, R.drawable.ic_ab_other));
+            icon.setAdjustViewBounds(true);
+            icon.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
+
+            TextView label = new TextView(context);
+            label.setText(text);
+            label.setGravity(Gravity.CENTER);
+            label.setMaxLines(2);
+            label.setEllipsize(TextUtils.TruncateAt.END);
+            GradientDrawable background = new GradientDrawable();
+            background.setShape(GradientDrawable.RECTANGLE);
+            background.setColor(Color.argb(38, 0, 0, 0));
+            background.setCornerRadius(AndroidUtilities.dp(12f));
+            container.setBackground(background);
+
+            container.addView(icon, new LinearLayout.LayoutParams(
+                    LayoutParams.WRAP_CONTENT,
+                    LayoutParams.WRAP_CONTENT
+            ));
+
+            container.addView(label, new LinearLayout.LayoutParams(
+                    LayoutParams.WRAP_CONTENT,
+                    LayoutParams.WRAP_CONTENT
+            ));
+
+            return container;
+        }
+    }
+
 }
