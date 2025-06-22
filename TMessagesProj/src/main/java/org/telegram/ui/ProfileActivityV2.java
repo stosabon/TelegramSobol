@@ -28,7 +28,6 @@ import android.widget.TextView;
 
 import androidx.annotation.NonNull;
 import androidx.core.content.ContextCompat;
-import androidx.core.graphics.ColorUtils;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
@@ -115,6 +114,8 @@ public class ProfileActivityV2 extends BaseFragment {
     private boolean callActionVisible;
     private boolean videoCallActionVisible;
     private boolean giftActionVisible;
+    private boolean shareActionVisible;
+    private boolean joinActionVisible;
 
     private long chatId;
     private long userId;
@@ -1030,6 +1031,9 @@ public class ProfileActivityV2 extends BaseFragment {
         callActionVisible = false;
         videoCallActionVisible = false;
         notificationsActionVisible = false;
+        giftActionVisible = false;
+        shareActionVisible = false;
+        joinActionVisible = false;
         if (userId != 0) {
             TLRPC.User user = getMessagesController().getUser(userId);
             if (user == null) {
@@ -1053,6 +1057,9 @@ public class ProfileActivityV2 extends BaseFragment {
                         }
                     }
                 }
+                if (isBot && !MessagesController.isSupportUser(user) && getDialogId() != UserObject.VERIFY) {
+                    shareActionVisible = true;
+                }
             }
         } else if (chatId != 0) {
             TLRPC.Chat chat = getMessagesController().getChat(chatId);
@@ -1061,6 +1068,9 @@ public class ProfileActivityV2 extends BaseFragment {
                     ChatObject.Call call = getMessagesController().getGroupCall(chatId, false);
                     callActionVisible = call != null;
                 }
+                if (currentChat.left && !currentChat.kicked) {
+                    joinActionVisible = true;
+                }
             } else {
                 if (chatInfo != null) {
                     ChatObject.Call call = getMessagesController().getGroupCall(chatId, false);
@@ -1068,6 +1078,13 @@ public class ProfileActivityV2 extends BaseFragment {
                 }
             }
             notificationsActionVisible = true;
+            if (ChatObject.isPublic(chat) && !chat.megagroup) {
+                shareActionVisible = true;
+            }
+        }
+        if (joinActionVisible) {
+            // Should be localised
+            actionsContainer.addAction(R.drawable.join, "Join");
         }
         if (messageActionVisible) {
             actionsContainer.addAction(R.drawable.message, LocaleController.getString(R.string.Message));
@@ -1090,6 +1107,9 @@ public class ProfileActivityV2 extends BaseFragment {
         if (giftActionVisible) {
             // Should be localised
             actionsContainer.addAction(R.drawable.gift, "Gift");
+        }
+        if (shareActionVisible) {
+            actionsContainer.addAction(R.drawable.share, LocaleController.getString(R.string.BotShare));
         }
     }
 
