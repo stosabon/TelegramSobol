@@ -80,6 +80,7 @@ public class ProfileActivityV2 extends BaseFragment {
     private int rowCount;
 
     private boolean callActionVisible;
+    private boolean videoCallActionVisible;
 
     private long chatId;
     private long userId;
@@ -323,6 +324,7 @@ public class ProfileActivityV2 extends BaseFragment {
             if (!UserObject.isUserSelf(user)) {
                 if (userInfo != null && userInfo.phone_calls_available) {
                     callActionVisible = true;
+                    videoCallActionVisible = Build.VERSION.SDK_INT >= 18 && userInfo.video_calls_available;
                 }
             }
         } else if (chatId != 0) {
@@ -341,6 +343,10 @@ public class ProfileActivityV2 extends BaseFragment {
         }
         if (callActionVisible) {
             actionsContainer.addAction(R.drawable.call, LocaleController.getString(R.string.Call));
+        }
+        if (videoCallActionVisible) {
+            // Should be localised
+            actionsContainer.addAction(R.drawable.video, "Video");
         }
     }
 
