@@ -34,6 +34,7 @@ import androidx.recyclerview.widget.RecyclerView;
 
 import org.telegram.PhoneFormat.PhoneFormat;
 import org.telegram.messenger.AndroidUtilities;
+import org.telegram.messenger.BuildVars;
 import org.telegram.messenger.ChatObject;
 import org.telegram.messenger.DialogObject;
 import org.telegram.messenger.DocumentObject;
@@ -78,6 +79,7 @@ import org.telegram.ui.Components.ScamDrawable;
 import org.telegram.ui.Components.SharedMediaLayout;
 import org.telegram.ui.Components.VectorAvatarThumbDrawable;
 import org.telegram.tgnet.TLRPC;
+import org.telegram.ui.Stars.StarsController;
 
 import java.util.concurrent.CountDownLatch;
 
@@ -112,6 +114,7 @@ public class ProfileActivityV2 extends BaseFragment {
     private boolean notificationsActionVisible; /** READY */
     private boolean callActionVisible;
     private boolean videoCallActionVisible;
+    private boolean giftActionVisible;
 
     private long chatId;
     private long userId;
@@ -119,6 +122,7 @@ public class ProfileActivityV2 extends BaseFragment {
     private boolean isTopic;
     private boolean isBot;
     private long topicId;
+    private boolean userBlocked;
     private int onlineCount = -1;
     private TLRPC.UserFull userInfo;
     private TLRPC.ChatFull chatInfo;
@@ -1040,6 +1044,15 @@ public class ProfileActivityV2 extends BaseFragment {
                     notificationsActionVisible = true;
                 }
                 messageActionVisible = true;
+
+                if (!isBot && getContactsController().contactsDict.get(userId) != null) {
+                    if (!UserObject.isDeleted(user) && !isBot && currentEncryptedChat == null && !userBlocked && userId != 333000 && userId != 777000 && userId != 42777) {
+                        if (!BuildVars.IS_BILLING_UNAVAILABLE && !user.self && !user.bot && !MessagesController.isSupportUser(user) && !getMessagesController().premiumPurchaseBlocked()) {
+                            StarsController.getInstance(currentAccount).loadStarGifts();
+                            giftActionVisible = !videoCallActionVisible;
+                        }
+                    }
+                }
             }
         } else if (chatId != 0) {
             TLRPC.Chat chat = getMessagesController().getChat(chatId);
@@ -1072,6 +1085,11 @@ public class ProfileActivityV2 extends BaseFragment {
         if (videoCallActionVisible) {
             // Should be localised
             actionsContainer.addAction(R.drawable.video, "Video");
+        }
+
+        if (giftActionVisible) {
+            // Should be localised
+            actionsContainer.addAction(R.drawable.gift, "Gift");
         }
     }
 
@@ -1216,6 +1234,7 @@ public class ProfileActivityV2 extends BaseFragment {
                 return false;
             }
             userInfo = getMessagesController().getUserFull(userId);
+            userBlocked = getMessagesController().blockePeers.indexOfKey(userId) >= 0;
             if (user.bot) {
                 isBot = true;
                 getMediaDataController().loadBotInfo(user.id, user.id, true, classGuid);
