@@ -52,6 +52,7 @@ import org.telegram.tgnet.TLRPC;
 public class ProfileActivityV2 extends BaseFragment {
 
     private ProfileContainerView profileContainer;
+    private int middleStateProfileExtraHeight;
     private AvatarDrawable avatarDrawable;
     private float avatarAnimationProgress;
     private AvatarImageView avatarImage;
@@ -86,16 +87,18 @@ public class ProfileActivityV2 extends BaseFragment {
         if (lastFragment instanceof ChatActivity && ((ChatActivity) lastFragment).themeDelegate != null && ((ChatActivity) lastFragment).themeDelegate.getCurrentTheme() != null) {
             resourcesProvider = lastFragment.getResourceProvider();
         }
+        middleStateProfileExtraHeight = AndroidUtilities.dp(128f);
+        avatarAnimationProgress = 1f;
         fragmentView = new FrameLayout(context) {
             @Override
             protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
                 super.onMeasure(widthMeasureSpec, heightMeasureSpec);
-                avatarAnimationProgress = 1f;
                 final int actionBarHeight = ActionBar.getCurrentActionBarHeight() + (actionBar.getOccupyStatusBar() ? AndroidUtilities.statusBarHeight : 0);
-                int middleStateExtraHeight = AndroidUtilities.dp(128f);
-                profileContainer.measure(View.MeasureSpec.makeMeasureSpec(fragmentView.getMeasuredWidth(), MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(actionBarHeight + middleStateExtraHeight, MeasureSpec.EXACTLY));
+                int newProfileContainerHeight = (int) (middleStateProfileExtraHeight * avatarAnimationProgress);
+                profileContainer.measure(View.MeasureSpec.makeMeasureSpec(fragmentView.getMeasuredWidth(), MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(actionBarHeight + newProfileContainerHeight, MeasureSpec.EXACTLY));
 
-                float avatarScale = AndroidUtilities.lerp(42f, (42f + 42f + 18f) / 42f, avatarAnimationProgress);
+                float avatarScale = AndroidUtilities.lerp(1f, (42f + 42f + 18f) / 42f, avatarAnimationProgress);
+                Log.e("STAS", "avatarScale " + avatarScale);
                 avatarImage.measure(
                         View.MeasureSpec.makeMeasureSpec(AndroidUtilities.dp(42f), MeasureSpec.EXACTLY),
                         View.MeasureSpec.makeMeasureSpec(AndroidUtilities.dp(42f), MeasureSpec.EXACTLY)
@@ -106,28 +109,24 @@ public class ProfileActivityV2 extends BaseFragment {
                         View.MeasureSpec.makeMeasureSpec(fragmentView.getMeasuredWidth(), MeasureSpec.EXACTLY),
                         View.MeasureSpec.makeMeasureSpec(fragmentView.getMeasuredHeight() - actionBarHeight, MeasureSpec.EXACTLY)
                 );
-                listView.setPadding(0, middleStateExtraHeight,0,0);
+                listView.setPadding(0, middleStateProfileExtraHeight,0,0);
             }
 
             @Override
             protected void onLayout(boolean changed, int left, int top, int right, int bottom) {
                 super.onLayout(changed, left, top, right, bottom);
                 final int actionBarHeight = ActionBar.getCurrentActionBarHeight() + (actionBar.getOccupyStatusBar() ? AndroidUtilities.statusBarHeight : 0);
-                int middleStateExtraHeight = AndroidUtilities.dp(128f);
-                profileContainer.layout(0, 0, profileContainer.getMeasuredWidth(), actionBarHeight + middleStateExtraHeight);
+                int newProfileContainerHeight = (int) (middleStateProfileExtraHeight * avatarAnimationProgress);
+                profileContainer.layout(0, 0, profileContainer.getMeasuredWidth(), actionBarHeight + newProfileContainerHeight);
                 int avatarStartX = profileContainer.getMeasuredWidth() / 2 - avatarImage.getMeasuredWidth()/ 2;
-                int avatarStartY = actionBarHeight;
+                int avatarStartY = (int) (actionBarHeight * avatarAnimationProgress);
                 avatarImage.layout(avatarStartX, avatarStartY, avatarStartX + avatarImage.getMeasuredWidth(), avatarStartY + avatarImage.getMeasuredHeight());
                 listView.layout(0, actionBarHeight, fragmentView.getMeasuredWidth(), actionBarHeight + listView.getMeasuredHeight());
             }
         };
         FrameLayout frameLayout = (FrameLayout) fragmentView;
 
-        listView = new RecyclerListView(context);
-        layoutManager = new LinearLayoutManager(context);
-        listView.setLayoutManager(layoutManager);
-        listAdapter = new ListAdapter(context);
-        listView.setAdapter(listAdapter);
+        initListView(context);
         frameLayout.addView(listView);
 
         profileContainer = new ProfileContainerView(context);
@@ -212,6 +211,47 @@ public class ProfileActivityV2 extends BaseFragment {
         //    }
         //}
         return AndroidUtilities.dp(21);
+    }
+
+    private void initListView(Context context) {
+        listView = new RecyclerListView(context);
+        layoutManager = new LinearLayoutManager(context);
+        listView.setLayoutManager(layoutManager);
+        listAdapter = new ListAdapter(context);
+        listView.setAdapter(listAdapter);
+        listView.setClipToPadding(false);
+        listView.setOnScrollListener(new RecyclerView.OnScrollListener() {
+
+            @Override
+            public void onScrollStateChanged(RecyclerView recyclerView, int newState) {
+                if (newState == RecyclerView.SCROLL_STATE_DRAGGING) {
+                    AndroidUtilities.hideKeyboard(getParentActivity().getCurrentFocus());
+                }
+            }
+
+            @Override
+            public void onScrolled(RecyclerView recyclerView, int dx, int dy) {
+                int newOffset = 0;
+                View child = null;
+                for (int i = 0; i < listView.getChildCount(); i++) {
+                    if (listView.getChildAdapterPosition(listView.getChildAt(i)) == 0) {
+                        child = listView.getChildAt(i);
+                        break;
+                    }
+                }
+                RecyclerListView.Holder holder = child == null ? null : (RecyclerListView.Holder) listView.findContainingViewHolder(child);
+                int top = child == null ? 0 : child.getTop();
+                int adapterPosition = holder != null ? holder.getAdapterPosition() : RecyclerView.NO_POSITION;
+                if (top >= 0 && adapterPosition == 0) {
+                    newOffset = top;
+                }
+                float newAvatarAnimationProgress = (float) newOffset / middleStateProfileExtraHeight;
+                if (avatarAnimationProgress != newAvatarAnimationProgress) {
+                    avatarAnimationProgress = newAvatarAnimationProgress;
+                    profileContainer.requestLayout();
+                }
+            }
+        });
     }
 
     @Override
