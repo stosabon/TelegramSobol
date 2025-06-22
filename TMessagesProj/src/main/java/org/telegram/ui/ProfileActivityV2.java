@@ -29,11 +29,13 @@ import androidx.recyclerview.widget.RecyclerView;
 import org.telegram.messenger.AndroidUtilities;
 import org.telegram.messenger.ChatObject;
 import org.telegram.messenger.FileLoader;
+import org.telegram.messenger.FileLog;
 import org.telegram.messenger.ImageLoader;
 import org.telegram.messenger.ImageLocation;
 import org.telegram.messenger.ImageReceiver;
 import org.telegram.messenger.LocaleController;
 import org.telegram.messenger.R;
+import org.telegram.messenger.UserObject;
 import org.telegram.ui.ActionBar.ActionBar;
 import org.telegram.ui.ActionBar.ActionBarMenu;
 import org.telegram.ui.ActionBar.ActionBarMenuItem;
@@ -55,6 +57,8 @@ import org.telegram.ui.Components.SharedMediaLayout;
 import org.telegram.ui.Components.VectorAvatarThumbDrawable;
 import org.telegram.tgnet.TLRPC;
 
+import java.util.concurrent.CountDownLatch;
+
 public class ProfileActivityV2 extends BaseFragment {
 
     private ProfileContainerView profileContainer;
@@ -75,8 +79,13 @@ public class ProfileActivityV2 extends BaseFragment {
     private LinearLayoutManager layoutManager;
     private int rowCount;
 
+    private boolean callActionVisible;
+
+    private long chatId;
     private long userId;
     private TLRPC.UserFull userInfo;
+    private TLRPC.ChatFull chatInfo;
+    private TLRPC.Chat currentChat;
 
     public ProfileActivityV2(Bundle args) {
         this(args, null);
@@ -99,7 +108,7 @@ public class ProfileActivityV2 extends BaseFragment {
         if (lastFragment instanceof ChatActivity && ((ChatActivity) lastFragment).themeDelegate != null && ((ChatActivity) lastFragment).themeDelegate.getCurrentTheme() != null) {
             resourcesProvider = lastFragment.getResourceProvider();
         }
-        middleStateProfileExtraHeight = AndroidUtilities.dp(200f);
+        middleStateProfileExtraHeight = AndroidUtilities.dp(210f);
         avatarAnimationProgress = 1f;
         listOffset = middleStateProfileExtraHeight;
         fragmentView = new FrameLayout(context) {
@@ -194,7 +203,7 @@ public class ProfileActivityV2 extends BaseFragment {
                     //onlineTextView[a].setScaleY(textScale);
                     onlineTextMaxBottom = Math.max(onlineTextMaxBottom, nameMaxBottom + onlineTextView[a].getMeasuredHeight());
                 }
-                actionsContainer.layout(AndroidUtilities.dp(16f), onlineTextMaxBottom, profileContainer.getMeasuredWidth() - AndroidUtilities.dp(16f), onlineTextMaxBottom + actionsContainer.getMeasuredHeight() );
+                actionsContainer.layout(AndroidUtilities.dp(16f), onlineTextMaxBottom + AndroidUtilities.dp(16f), profileContainer.getMeasuredWidth() - AndroidUtilities.dp(16f), onlineTextMaxBottom + actionsContainer.getMeasuredHeight() + AndroidUtilities.dp(16f) );
                 listView.layout(0, actionBarHeight, fragmentView.getMeasuredWidth(), actionBarHeight + listView.getMeasuredHeight());
             }
         };
@@ -206,20 +215,13 @@ public class ProfileActivityV2 extends BaseFragment {
         profileContainer = new ProfileContainerView(context);
         profileContainer.setBackgroundColor(getThemedColor(Theme.key_avatar_backgroundActionBarBlue));
         frameLayout.addView(profileContainer);
+        initMenu();
         frameLayout.addView(actionBar);
-        ActionBarMenu menu = actionBar.createMenu();
-        otherItem = menu.addItem(10, R.drawable.ic_ab_other, resourcesProvider);
-        otherItem.setContentDescription(LocaleController.getString(R.string.AccDescrMoreOptions));
-        otherItem.setIconColor(getThemedColor(Theme.key_actionBarDefaultIcon));
         initAvatar(context);
         initNameTextView(context);
         initOnlineTextView(context);
         profileContainer.addView(avatarImage, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT));
-        actionsContainer = new ActionsContainer(context);
-        actionsContainer.addAction(0, "Call");
-        actionsContainer.addAction(0, "Notifications");
-        actionsContainer.addAction(0, "Video");
-        actionsContainer.addAction(0, "Block");
+        initActions(context);
         profileContainer.addView(actionsContainer);
         return fragmentView;
     }
@@ -295,6 +297,53 @@ public class ProfileActivityV2 extends BaseFragment {
         return AndroidUtilities.dp(21);
     }
 
+    private void initMenu() {
+        ActionBarMenu menu = actionBar.createMenu();
+        otherItem = menu.addItem(10, R.drawable.ic_ab_other, resourcesProvider);
+        otherItem.setContentDescription(LocaleController.getString(R.string.AccDescrMoreOptions));
+        otherItem.setIconColor(getThemedColor(Theme.key_actionBarDefaultIcon));
+        actionBar.setActionBarMenuOnItemClick(new ActionBar.ActionBarMenuOnItemClick() {
+            @Override
+            public void onItemClick(final int id) {
+                if (id == -1) {
+                    finishFragment();
+                }
+            }
+        });
+    }
+
+    private void initActions(Context context) {
+        actionsContainer = new ActionsContainer(context);
+
+        if (userId != 0) {
+            TLRPC.User user = getMessagesController().getUser(userId);
+            if (user == null) {
+                return;
+            }
+            if (!UserObject.isUserSelf(user)) {
+                if (userInfo != null && userInfo.phone_calls_available) {
+                    callActionVisible = true;
+                }
+            }
+        } else if (chatId != 0) {
+            TLRPC.Chat chat = getMessagesController().getChat(chatId);
+            if (ChatObject.isChannel(chat)) {
+                if (chatInfo != null) {
+                    ChatObject.Call call = getMessagesController().getGroupCall(chatId, false);
+                    callActionVisible = call != null;
+                }
+            } else {
+                if (chatInfo != null) {
+                    ChatObject.Call call = getMessagesController().getGroupCall(chatId, false);
+                    callActionVisible = call != null;
+                }
+            }
+        }
+        if (callActionVisible) {
+            actionsContainer.addAction(R.drawable.call, LocaleController.getString(R.string.Call));
+        }
+    }
+
     private void initNameTextView(Context context) {
         for (int a = 0; a < nameTextView.length; a++) {
             nameTextView[a] = new SimpleTextView(context) {
@@ -335,7 +384,7 @@ public class ProfileActivityV2 extends BaseFragment {
             nameTextView[a].setFocusable(a == 0);
             nameTextView[a].setEllipsizeByGradient(true);
             nameTextView[a].setRightDrawableOutside(a == 0);
-            nameTextView[a].setText("Text " + a);
+            nameTextView[a].setText("User name " + a);
             profileContainer.addView(nameTextView[a], LayoutHelper.createFrame(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT));
         }
     }
@@ -427,6 +476,38 @@ public class ProfileActivityV2 extends BaseFragment {
 
     public boolean onFragmentCreate() {
         userId = arguments.getLong("user_id", 0);
+        chatId = arguments.getLong("chat_id", 0);
+
+        if (userId != 0) {
+            userInfo = getMessagesController().getUserFull(userId);
+        } else if (chatId != 0) {
+            currentChat = getMessagesController().getChat(chatId);
+            if (currentChat == null) {
+                final CountDownLatch countDownLatch = new CountDownLatch(1);
+                getMessagesStorage().getStorageQueue().postRunnable(() -> {
+                    currentChat = getMessagesStorage().getChat(chatId);
+                    countDownLatch.countDown();
+                });
+                try {
+                    countDownLatch.await();
+                } catch (Exception e) {
+                    FileLog.e(e);
+                }
+                if (currentChat != null) {
+                    getMessagesController().putChat(currentChat, true);
+                } else {
+                    return false;
+                }
+            }
+            if (chatInfo == null) {
+                chatInfo = getMessagesController().getChatFull(chatId);
+            }
+            if (ChatObject.isChannel(currentChat)) {
+                getMessagesController().loadFullChat(chatId, classGuid, true);
+            } else if (chatInfo == null) {
+                chatInfo = getMessagesStorage().loadChatInfo(chatId, false, null, false, false);
+            }
+        }
         return true;
     }
 
@@ -564,7 +645,7 @@ public class ProfileActivityV2 extends BaseFragment {
             container.setGravity(Gravity.CENTER);
 
             ImageView icon = new ImageView(context);
-            icon.setImageDrawable(ContextCompat.getDrawable(context, R.drawable.ic_ab_other));
+            icon.setImageDrawable(ContextCompat.getDrawable(context, drawableResId));
             icon.setAdjustViewBounds(true);
             icon.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
 
