@@ -1,5 +1,8 @@
 package org.telegram.ui;
 
+import static org.telegram.messenger.AndroidUtilities.dp;
+import static org.telegram.messenger.LocaleController.formatString;
+
 import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.Color;
@@ -10,6 +13,9 @@ import android.graphics.drawable.GradientDrawable;
 import android.graphics.drawable.StateListDrawable;
 import android.os.Build;
 import android.os.Bundle;
+import android.text.SpannableString;
+import android.text.SpannableStringBuilder;
+import android.text.Spanned;
 import android.text.TextUtils;
 import android.util.Log;
 import android.util.Property;
@@ -24,6 +30,7 @@ import android.widget.TextView;
 
 import androidx.annotation.NonNull;
 import androidx.core.content.ContextCompat;
+import androidx.core.graphics.ColorUtils;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
@@ -35,8 +42,11 @@ import org.telegram.messenger.ImageLoader;
 import org.telegram.messenger.ImageLocation;
 import org.telegram.messenger.ImageReceiver;
 import org.telegram.messenger.LocaleController;
+import org.telegram.messenger.MessagesController;
 import org.telegram.messenger.R;
+import org.telegram.messenger.UserConfig;
 import org.telegram.messenger.UserObject;
+import org.telegram.tgnet.ConnectionsManager;
 import org.telegram.ui.ActionBar.ActionBar;
 import org.telegram.ui.ActionBar.ActionBarMenu;
 import org.telegram.ui.ActionBar.ActionBarMenuItem;
@@ -46,12 +56,15 @@ import org.telegram.ui.ActionBar.SimpleTextView;
 import org.telegram.ui.ActionBar.Theme;
 import org.telegram.ui.Cells.HeaderCell;
 import org.telegram.ui.Components.AnimatedFileDrawable;
+import org.telegram.ui.Components.AnimatedTextView;
 import org.telegram.ui.Components.AnimationProperties;
 import org.telegram.ui.Components.AvatarDrawable;
 import org.telegram.ui.Components.BackupImageView;
 import org.telegram.ui.Components.ChatActivityInterface;
+import org.telegram.ui.Components.ColoredImageSpan;
 import org.telegram.ui.Components.LayoutHelper;
 import org.telegram.ui.Components.LinkSpanDrawable;
+import org.telegram.ui.Components.MessagePrivateSeenView;
 import org.telegram.ui.Components.ProfileGalleryView;
 import org.telegram.ui.Components.RecyclerListView;
 import org.telegram.ui.Components.SharedMediaLayout;
@@ -85,9 +98,18 @@ public class ProfileActivityV2 extends BaseFragment {
 
     private long chatId;
     private long userId;
+    private long dialogId;
+    private boolean isTopic;
+    private boolean isBot;
+    private long topicId;
+    private int onlineCount = -1;
     private TLRPC.UserFull userInfo;
     private TLRPC.ChatFull chatInfo;
     private TLRPC.Chat currentChat;
+    private boolean hasFallbackPhoto;
+    private boolean[] isOnline = new boolean[1];
+
+    BaseFragment previousTransitionMainFragment;
 
     public ProfileActivityV2(Bundle args) {
         this(args, null);
@@ -225,6 +247,7 @@ public class ProfileActivityV2 extends BaseFragment {
         profileContainer.addView(avatarImage, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT));
         initActions(context);
         profileContainer.addView(actionsContainer);
+        updateProfileData();
         return fragmentView;
     }
 
@@ -286,6 +309,273 @@ public class ProfileActivityV2 extends BaseFragment {
             } else {
                 avatarImage.setImage(videoLocation, ImageLoader.AUTOPLAY_FILTER, thumbLocation, "50_50", avatarDrawable, user);
             }
+        }
+    }
+
+    private void updateProfileData() {
+        String onlineTextOverride;
+        int currentConnectionState = getConnectionsManager().getConnectionState();
+        if (currentConnectionState == ConnectionsManager.ConnectionStateWaitingForNetwork) {
+            onlineTextOverride = LocaleController.getString(R.string.WaitingForNetwork);
+        } else if (currentConnectionState == ConnectionsManager.ConnectionStateConnecting) {
+            onlineTextOverride = LocaleController.getString(R.string.Connecting);
+        } else if (currentConnectionState == ConnectionsManager.ConnectionStateUpdating) {
+            onlineTextOverride = LocaleController.getString(R.string.Updating);
+        } else if (currentConnectionState == ConnectionsManager.ConnectionStateConnectingToProxy) {
+            onlineTextOverride = LocaleController.getString(R.string.ConnectingToProxy);
+        } else {
+            onlineTextOverride = null;
+        }
+        BaseFragment prevFragment = null;
+        if (parentLayout != null && parentLayout.getFragmentStack().size() >= 2) {
+            BaseFragment fragment = parentLayout.getFragmentStack().get(parentLayout.getFragmentStack().size() - 2);
+            if (fragment instanceof ChatActivityInterface) {
+                prevFragment = fragment;
+            }
+            if (fragment instanceof DialogsActivity) {
+                DialogsActivity dialogsActivity = (DialogsActivity) fragment;
+                if (dialogsActivity.rightSlidingDialogContainer != null && dialogsActivity.rightSlidingDialogContainer.currentFragment instanceof ChatActivityInterface) {
+                    previousTransitionMainFragment = dialogsActivity;
+                    prevFragment = dialogsActivity.rightSlidingDialogContainer.currentFragment;
+                }
+            }
+        }
+        final boolean copyFromChatActivity = prevFragment instanceof ChatActivity && ((ChatActivity) prevFragment).avatarContainer != null && ((ChatActivity) prevFragment).getChatMode() == ChatActivity.MODE_SUGGESTIONS;
+
+        TLRPC.TL_forumTopic topic = null;
+
+        hasFallbackPhoto = false;
+        if (userId != 0) {
+            TLRPC.User user = getMessagesController().getUser(userId);
+            if (user == null) {
+                return;
+            }
+            boolean shortStatus = user.photo != null && user.photo.personal;
+            String newString2;
+            boolean hiddenStatusButton = false;
+            if (user.id == getUserConfig().getClientUserId()) {
+                if (UserObject.hasFallbackPhoto(userInfo)) {
+                    newString2 = "";
+                    hasFallbackPhoto = true;
+                    TLRPC.PhotoSize smallSize = FileLoader.getClosestPhotoSizeWithSize(userInfo.fallback_photo.sizes, 1000);
+                    if (smallSize != null) {
+                        //fallbackImage.setImage(ImageLocation.getForPhoto(smallSize, userInfo.fallback_photo), "50_50", (Drawable) null, 0, null, UserConfig.getInstance(currentAccount).getCurrentUser(), 0);
+                    }
+                } else {
+                    newString2 = LocaleController.getString(R.string.Online);
+                }
+            } else if (user.id == UserObject.VERIFY) {
+                newString2 = LocaleController.getString(R.string.VerifyCodesNotifications);
+            } else if (user.id == 333000 || user.id == 777000 || user.id == 42777) {
+                newString2 = LocaleController.getString(R.string.ServiceNotifications);
+            } else if (MessagesController.isSupportUser(user)) {
+                newString2 = LocaleController.getString(R.string.SupportStatus);
+            } else if (isBot) {
+                if (user.bot_active_users != 0) {
+                    newString2 = LocaleController.formatPluralStringComma("BotUsers", user.bot_active_users, ',');
+                } else {
+                    newString2 = LocaleController.getString(R.string.Bot);
+                }
+
+            } else {
+                isOnline[0] = false;
+                newString2 = LocaleController.formatUserStatus(currentAccount, user, isOnline, shortStatus ? new boolean[1] : null);
+                hiddenStatusButton = user != null && !isOnline[0] && !getUserConfig().isPremium() && user.status != null && (user.status instanceof TLRPC.TL_userStatusRecently || user.status instanceof TLRPC.TL_userStatusLastMonth || user.status instanceof TLRPC.TL_userStatusLastWeek) && user.status.by_me;
+                //if (onlineTextView[1] != null && !mediaHeaderVisible) {
+                //    int key = isOnline[0] && peerColor == null ? Theme.key_profile_status : Theme.key_avatar_subtitleInProfileBlue;
+                //    onlineTextView[1].setTag(key);
+                //    if (!isPulledDown) {
+                //        onlineTextView[1].setTextColor(applyPeerColor(getThemedColor(key), true, isOnline[0]));
+                //    }
+                //}
+            }
+            for (int a = 0; a < 2; a++) {
+                if (nameTextView[a] == null) {
+                    continue;
+                }
+                if (a == 0 && onlineTextOverride != null) {
+                    onlineTextView[a].setText(onlineTextOverride);
+                } else if (a == 0 && copyFromChatActivity) {
+                    ChatActivity chatActivity = (ChatActivity) prevFragment;
+                    if (chatActivity.avatarContainer.getSubtitleTextView() instanceof SimpleTextView) {
+                        SimpleTextView textView = (SimpleTextView) chatActivity.avatarContainer.getSubtitleTextView();
+                        onlineTextView[a].setText(textView.getText());
+                    } else if (chatActivity.avatarContainer.getSubtitleTextView() instanceof AnimatedTextView) {
+                        AnimatedTextView textView = (AnimatedTextView) chatActivity.avatarContainer.getSubtitleTextView();
+                        onlineTextView[a].setText(textView.getText());
+                    }
+                } else {
+                    onlineTextView[a].setText(newString2);
+                }
+
+                if (a == 0 && onlineTextOverride != null) {
+                    onlineTextView[a].setText(onlineTextOverride);
+                }
+                onlineTextView[a].setDrawablePadding(dp(9));
+                onlineTextView[a].setRightDrawableInside(true);
+                onlineTextView[a].setRightDrawable(a == 1 && hiddenStatusButton ? getShowStatusButton() : null);
+                onlineTextView[a].setRightDrawableOnClick(a == 1 && hiddenStatusButton ? v -> {
+                    MessagePrivateSeenView.showSheet(getContext(), currentAccount, getDialogId(), true, null, () -> {
+                        getMessagesController().reloadUser(getDialogId());
+                    }, resourcesProvider);
+                } : null);
+            }
+            if (userId == UserConfig.getInstance(currentAccount).clientUserId) {
+                onlineTextView[2].setText(LocaleController.getString(R.string.FallbackTooltip));
+                onlineTextView[3].setText(LocaleController.getString(R.string.Online));
+            }
+        } else if (chatId != 0) {
+            TLRPC.Chat chat = getMessagesController().getChat(chatId);
+            if (chat != null) {
+                currentChat = chat;
+            } else {
+                chat = currentChat;
+            }
+
+            if (isTopic) {
+                topic = getMessagesController().getTopicsController().findTopic(chatId, topicId);
+            }
+
+            CharSequence statusString;
+            CharSequence profileStatusString;
+            boolean profileStatusIsButton = false;
+            if (ChatObject.isChannel(chat)) {
+                if (!isTopic && (chatInfo == null || !currentChat.megagroup && (chatInfo.participants_count == 0 || ChatObject.hasAdminRights(currentChat) || chatInfo.can_view_participants))) {
+                    if (currentChat.megagroup) {
+                        statusString = profileStatusString = LocaleController.getString(R.string.Loading).toLowerCase();
+                    } else {
+                        if (ChatObject.isPublic(chat)) {
+                            statusString = profileStatusString = LocaleController.getString(R.string.ChannelPublic).toLowerCase();
+                        } else {
+                            statusString = profileStatusString = LocaleController.getString(R.string.ChannelPrivate).toLowerCase();
+                        }
+                    }
+                } else {
+                    if (isTopic) {
+                        int count = 0;
+                        if (topic != null) {
+                            count = topic.totalMessagesCount - 1;
+                        }
+                        if (count > 0) {
+                            statusString = LocaleController.formatPluralString("messages", count, count);
+                        } else {
+                            statusString = formatString("TopicProfileStatus", R.string.TopicProfileStatus, chat.title);
+                        }
+                        SpannableString arrowString = new SpannableString(">");
+                        arrowString.setSpan(new ColoredImageSpan(R.drawable.arrow_newchat), 0, 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+                        profileStatusString = new SpannableStringBuilder(chat.title).append(' ').append(arrowString);
+                        profileStatusIsButton = true;
+                    } else if (currentChat.megagroup) {
+                        if (onlineCount > 1 && chatInfo.participants_count != 0) {
+                            statusString = String.format("%s, %s", LocaleController.formatPluralString("Members", chatInfo.participants_count), LocaleController.formatPluralString("OnlineCount", Math.min(onlineCount, chatInfo.participants_count)));
+                            profileStatusString = String.format("%s, %s", LocaleController.formatPluralStringComma("Members", chatInfo.participants_count), LocaleController.formatPluralStringComma("OnlineCount", Math.min(onlineCount, chatInfo.participants_count)));
+                        } else {
+                            if (chatInfo.participants_count == 0) {
+                                if (chat.has_geo) {
+                                    statusString = profileStatusString = LocaleController.getString(R.string.MegaLocation).toLowerCase();
+                                } else if (ChatObject.isPublic(chat)) {
+                                    statusString = profileStatusString = LocaleController.getString(R.string.MegaPublic).toLowerCase();
+                                } else {
+                                    statusString = profileStatusString = LocaleController.getString(R.string.MegaPrivate).toLowerCase();
+                                }
+                            } else {
+                                statusString = LocaleController.formatPluralString("Members", chatInfo.participants_count);
+                                profileStatusString = LocaleController.formatPluralStringComma("Members", chatInfo.participants_count);
+                            }
+                        }
+                    } else {
+                        if (currentChat.megagroup) {
+                            statusString = LocaleController.formatPluralString("Members", chatInfo.participants_count);
+                            profileStatusString = LocaleController.formatPluralStringComma("Members", chatInfo.participants_count);
+                        } else {
+                            statusString = LocaleController.formatPluralString("Subscribers", chatInfo.participants_count);
+                            profileStatusString = LocaleController.formatPluralStringComma("Subscribers", chatInfo.participants_count);
+                        }
+                    }
+                }
+            } else {
+                if (ChatObject.isKickedFromChat(chat)) {
+                    statusString = profileStatusString = LocaleController.getString(R.string.YouWereKicked);
+                } else if (ChatObject.isLeftFromChat(chat)) {
+                    statusString = profileStatusString = LocaleController.getString(R.string.YouLeft);
+                } else {
+                    int count = chat.participants_count;
+                    if (chatInfo != null && chatInfo.participants != null) {
+                        count = chatInfo.participants.participants.size();
+                    }
+                    if (count != 0 && onlineCount > 1) {
+                        statusString = profileStatusString = String.format("%s, %s", LocaleController.formatPluralString("Members", count), LocaleController.formatPluralString("OnlineCount", onlineCount));
+                    } else {
+                        statusString = profileStatusString = LocaleController.formatPluralString("Members", count);
+                    }
+                }
+            }
+            if (copyFromChatActivity) {
+                ChatActivity chatActivity = (ChatActivity) prevFragment;
+                if (chatActivity.avatarContainer.getSubtitleTextView() instanceof SimpleTextView) {
+                    statusString = ((SimpleTextView) chatActivity.avatarContainer.getSubtitleTextView()).getText();
+                } else if (chatActivity.avatarContainer.getSubtitleTextView() instanceof AnimatedTextView) {
+                    statusString = ((AnimatedTextView) chatActivity.avatarContainer.getSubtitleTextView()).getText();
+                }
+            }
+            for (int a = 0; a < 2; a++) {
+                if (a == 0 && onlineTextOverride != null) {
+                    onlineTextView[a].setText(onlineTextOverride);
+                } else {
+                    if (copyFromChatActivity || (currentChat.megagroup && chatInfo != null && onlineCount > 0) || isTopic) {
+                        onlineTextView[a].setText(a == 0 ? statusString : profileStatusString);
+                    } else if (a == 0 && ChatObject.isChannel(currentChat) && chatInfo != null && chatInfo.participants_count != 0 && (currentChat.megagroup || currentChat.broadcast)) {
+                        int[] result = new int[1];
+                        boolean ignoreShort = AndroidUtilities.isAccessibilityScreenReaderEnabled();
+                        String shortNumber = ignoreShort ? String.valueOf(result[0] = chatInfo.participants_count) : LocaleController.formatShortNumber(chatInfo.participants_count, result);
+                        if (currentChat.megagroup) {
+                            if (chatInfo.participants_count == 0) {
+                                if (chat.has_geo) {
+                                    onlineTextView[a].setText(LocaleController.getString(R.string.MegaLocation).toLowerCase());
+                                } else if (ChatObject.isPublic(chat)) {
+                                    onlineTextView[a].setText(LocaleController.getString(R.string.MegaPublic).toLowerCase());
+                                } else {
+                                    onlineTextView[a].setText(LocaleController.getString(R.string.MegaPrivate).toLowerCase());
+                                }
+                            } else {
+                                onlineTextView[a].setText(LocaleController.formatPluralString("Members", result[0]).replace(String.format("%d", result[0]), shortNumber));
+                            }
+                        } else {
+                            onlineTextView[a].setText(LocaleController.formatPluralString("Subscribers", result[0]).replace(String.format("%d", result[0]), shortNumber));
+                        }
+                    } else {
+                        onlineTextView[a].setText(a == 0 ? statusString : profileStatusString);
+                    }
+                }
+                if (a == 1 && isTopic) {
+                    if (profileStatusIsButton) {
+                        //onlineTextView[a].setOnClickListener(e -> goToForum());
+                    } else {
+                        onlineTextView[a].setOnClickListener(null);
+                        onlineTextView[a].setClickable(false);
+                    }
+                }
+            }
+        }
+    }
+
+    private ProfileActivity.ShowDrawable showStatusButton;
+    public ProfileActivity.ShowDrawable getShowStatusButton() {
+        if (showStatusButton == null) {
+            showStatusButton = new ProfileActivity.ShowDrawable(LocaleController.getString(R.string.StatusHiddenShow));
+            //showStatusButton.setAlpha((int) (0xFF * Math.min(1f, extraHeight / AndroidUtilities.dp(88f))));
+            //showStatusButton.setBackgroundColor(ColorUtils.blendARGB(Theme.multAlpha(Theme.adaptHSV(actionBarBackgroundColor, +0.18f, -0.1f), 0.5f), 0x23ffffff, currentExpandAnimatorValue));
+        }
+        return showStatusButton;
+    }
+
+    public long getDialogId() {
+        if (dialogId != 0) {
+            return dialogId;
+        } else if (userId != 0) {
+            return userId;
+        } else {
+            return -chatId;
         }
     }
 
@@ -417,7 +707,6 @@ public class ProfileActivityV2 extends BaseFragment {
                 onlineTextView[a].setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
             }
             onlineTextView[a].setFocusable(a == 0);
-            onlineTextView[a].setText("online");
             profileContainer.addView(onlineTextView[a], LayoutHelper.createFrame(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT));
         }
     }
@@ -484,9 +773,20 @@ public class ProfileActivityV2 extends BaseFragment {
     public boolean onFragmentCreate() {
         userId = arguments.getLong("user_id", 0);
         chatId = arguments.getLong("chat_id", 0);
+        topicId = arguments.getLong("topic_id", 0);
+        isTopic = topicId != 0;
 
         if (userId != 0) {
+            dialogId = arguments.getLong("dialog_id", 0);
+            TLRPC.User user = getMessagesController().getUser(userId);
+            if (user == null) {
+                return false;
+            }
             userInfo = getMessagesController().getUserFull(userId);
+            if (user.bot) {
+                isBot = true;
+                getMediaDataController().loadBotInfo(user.id, user.id, true, classGuid);
+            }
         } else if (chatId != 0) {
             currentChat = getMessagesController().getChat(chatId);
             if (currentChat == null) {
