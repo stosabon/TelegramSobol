@@ -7,6 +7,7 @@ import android.graphics.Paint;
 import android.graphics.RectF;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
+import android.graphics.drawable.StateListDrawable;
 import android.os.Build;
 import android.os.Bundle;
 import android.text.TextUtils;
@@ -649,22 +650,37 @@ public class ProfileActivityV2 extends BaseFragment {
             container.setLayoutParams(new LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.MATCH_PARENT));
             container.setOrientation(LinearLayout.VERTICAL);
             container.setGravity(Gravity.CENTER);
+            container.setClickable(true);
 
             ImageView icon = new ImageView(context);
             icon.setImageDrawable(ContextCompat.getDrawable(context, drawableResId));
-            icon.setAdjustViewBounds(true);
-            icon.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
 
             TextView label = new TextView(context);
             label.setText(text);
             label.setGravity(Gravity.CENTER);
-            label.setMaxLines(2);
-            label.setEllipsize(TextUtils.TruncateAt.END);
+            label.setTextSize(14);
+            label.setTextColor(getThemedColor(Theme.key_actionBarDefaultIcon));
             GradientDrawable background = new GradientDrawable();
             background.setShape(GradientDrawable.RECTANGLE);
             background.setColor(Color.argb(38, 0, 0, 0));
             background.setCornerRadius(AndroidUtilities.dp(12f));
-            container.setBackground(background);
+
+            StateListDrawable stateListDrawable = new StateListDrawable();
+
+            GradientDrawable pressedDrawable = new GradientDrawable();
+            pressedDrawable.setShape(GradientDrawable.RECTANGLE);
+            pressedDrawable.setColor(Color.argb(76, 0, 0, 0)); // 30% opacity
+            pressedDrawable.setCornerRadius(AndroidUtilities.dp(12f));
+
+            GradientDrawable defaultDrawable = new GradientDrawable();
+            defaultDrawable.setShape(GradientDrawable.RECTANGLE);
+            defaultDrawable.setColor(Color.argb(38, 0, 0, 0)); // 15% opacity
+            defaultDrawable.setCornerRadius(AndroidUtilities.dp(12f));
+
+            stateListDrawable.addState(new int[]{android.R.attr.state_pressed}, pressedDrawable);
+            stateListDrawable.addState(new int[]{}, defaultDrawable); // Default state
+
+            container.setBackground(stateListDrawable);
 
             container.addView(icon, new LinearLayout.LayoutParams(
                     LayoutParams.WRAP_CONTENT,
