@@ -60,6 +60,7 @@ import org.telegram.ui.ActionBar.BaseFragment;
 import org.telegram.ui.ActionBar.SimpleTextView;
 import org.telegram.ui.ActionBar.Theme;
 import org.telegram.ui.Cells.HeaderCell;
+import org.telegram.ui.Components.AlertsCreator;
 import org.telegram.ui.Components.AnimatedEmojiDrawable;
 import org.telegram.ui.Components.AnimatedTextView;
 import org.telegram.ui.Components.AvatarDrawable;
@@ -118,6 +119,7 @@ public class ProfileActivityV2 extends BaseFragment implements NotificationCente
     private boolean giftActionVisible;
     private boolean shareActionVisible;
     private boolean joinActionVisible;
+    private boolean leaveActionVisible;
 
     private long chatId;
     private long userId;
@@ -1036,6 +1038,7 @@ public class ProfileActivityV2 extends BaseFragment implements NotificationCente
         giftActionVisible = false;
         shareActionVisible = false;
         joinActionVisible = false;
+        leaveActionVisible = false;
         if (userId != 0) {
             TLRPC.User user = getMessagesController().getUser(userId);
             if (user == null) {
@@ -1073,11 +1076,21 @@ public class ProfileActivityV2 extends BaseFragment implements NotificationCente
                 if (currentChat.left && !currentChat.kicked) {
                     joinActionVisible = true;
                 }
+                if (chat.megagroup) {
+                    if (!chat.creator && !chat.left && !chat.kicked && !isTopic) {
+                        leaveActionVisible = true;
+                    }
+                } else {
+                    if (!currentChat.creator && !currentChat.left && !currentChat.kicked) {
+                        leaveActionVisible = true;
+                    }
+                }
             } else {
                 if (chatInfo != null) {
                     ChatObject.Call call = getMessagesController().getGroupCall(chatId, false);
                     callActionVisible = call != null;
                 }
+                leaveActionVisible = true;
             }
             notificationsActionVisible = true;
             if (ChatObject.isPublic(chat) && !chat.megagroup) {
@@ -1112,6 +1125,10 @@ public class ProfileActivityV2 extends BaseFragment implements NotificationCente
         }
         if (shareActionVisible) {
             actionsContainer.addAction(R.drawable.share, LocaleController.getString(R.string.BotShare), v -> {});
+        }
+        if (leaveActionVisible) {
+            // Should be localised
+            actionsContainer.addAction(R.drawable.leave, "Leave", v -> onLeaveClick());
         }
     }
 
@@ -1348,6 +1365,16 @@ public class ProfileActivityV2 extends BaseFragment implements NotificationCente
         } else {
             openDiscussion();
         }
+    }
+
+    private void onLeaveClick() {
+        boolean isForum = ChatObject.isForum(currentChat);
+        AlertsCreator.createClearOrDeleteDialogAlert(ProfileActivityV2.this, false, currentChat, null, false, isForum, !isForum, (param) -> {
+            getNotificationCenter().removeObserver(ProfileActivityV2.this, NotificationCenter.closeChats);
+            getNotificationCenter().postNotificationName(NotificationCenter.closeChats);
+            finishFragment();
+            getNotificationCenter().postNotificationName(NotificationCenter.needDeleteDialog, -currentChat.id, null, currentChat, param);
+        }, resourcesProvider);
     }
 
     private void openDiscussion() {
