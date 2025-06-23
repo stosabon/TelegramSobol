@@ -61,6 +61,7 @@ import org.telegram.ui.Components.UniversalRecyclerView;
 import org.telegram.ui.LaunchActivity;
 import org.telegram.ui.PeerColorActivity;
 import org.telegram.ui.ProfileActivity;
+import org.telegram.ui.ProfileActivityV2;
 import org.telegram.ui.Stars.StarGiftSheet;
 import org.telegram.ui.Stars.StarsController;
 import org.telegram.ui.Stories.recorder.ButtonWithCounterView;
@@ -191,6 +192,9 @@ public class ProfileGiftsContainer extends FrameLayout implements NotificationCe
                 listView.adapter.updateWithoutNotify();
                 if (fragment instanceof ProfileActivity && ((ProfileActivity) fragment).giftsView != null) {
                     ((ProfileActivity) fragment).giftsView.update();
+                }
+                if (fragment instanceof ProfileActivityV2 && ((ProfileActivityV2) fragment).giftsView != null) {
+                    ((ProfileActivityV2) fragment).giftsView.update();
                 }
                 return true;
             }

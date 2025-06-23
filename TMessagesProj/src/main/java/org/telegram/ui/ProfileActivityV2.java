@@ -99,6 +99,7 @@ import org.telegram.ui.Components.SizeNotifierFrameLayout;
 import org.telegram.ui.Components.VectorAvatarThumbDrawable;
 import org.telegram.tgnet.TLRPC;
 import org.telegram.ui.Components.voip.VoIPHelper;
+import org.telegram.ui.Stars.ProfileGiftsViewV2;
 import org.telegram.ui.Stars.StarGiftPatterns;
 import org.telegram.ui.Stars.StarsController;
 
@@ -107,14 +108,16 @@ import java.util.concurrent.CountDownLatch;
 public class ProfileActivityV2 extends BaseFragment implements NotificationCenter.NotificationCenterDelegate {
 
     private SizeNotifierFrameLayout contentView;
+
     private ProfileContainerView profileContainer;
+    public ProfileGiftsViewV2 giftsView;
+    private AvatarImageView avatarImage;
     private AvatarDrawable avatarDrawable;
     private float avatarAnimationProgress;
     private float listOffset;
     private ActionsContainer actionsContainer;
     private int middleStateProfileExtraHeight;
     private float currentExtraHeight;
-    private AvatarImageView avatarImage;
     private SimpleTextView[] nameTextView = new SimpleTextView[2];
     private String nameTextViewRightDrawableContentDescription = null;
     private String nameTextViewRightDrawable2ContentDescription = null;
@@ -304,6 +307,13 @@ public class ProfileActivityV2 extends BaseFragment implements NotificationCente
                 }
                 actionsContainer.layout(AndroidUtilities.dp(16f), onlineTextMaxBottom + AndroidUtilities.dp(16f), profileContainer.getMeasuredWidth() - AndroidUtilities.dp(16f), onlineTextMaxBottom + actionsContainer.getMeasuredHeight() + AndroidUtilities.dp(16f) );
                 listView.layout(0, actionBarHeight, fragmentView.getMeasuredWidth(), actionBarHeight + listView.getMeasuredHeight());
+                if (giftsView != null) {
+                    giftsView.setExpandCoords(
+                            profileContainer.getMeasuredWidth() - AndroidUtilities.dp(40),
+                            false,
+                            (actionBar.getOccupyStatusBar() ? AndroidUtilities.statusBarHeight : 0) + ActionBar.getCurrentActionBarHeight() + middleStateProfileExtraHeight
+                    );
+                }
             }
         };
         contentView = (SizeNotifierFrameLayout) fragmentView;
@@ -323,6 +333,8 @@ public class ProfileActivityV2 extends BaseFragment implements NotificationCente
         profileContainer.addView(avatarImage, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT));
         initActions(context);
         profileContainer.addView(actionsContainer);
+        giftsView = new ProfileGiftsViewV2(context, currentAccount, getDialogId(), profileContainer, avatarImage, resourcesProvider);
+        profileContainer.addView(giftsView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT));
         updateProfileData();
         return fragmentView;
     }
@@ -1028,9 +1040,9 @@ public class ProfileActivityV2 extends BaseFragment implements NotificationCente
         //if (storyView != null) {
         //    storyView.update();
         //}
-        //if (giftsView != null) {
-        //    giftsView.update();
-        //}
+        if (giftsView != null) {
+            giftsView.update();
+        }
     }
 
     private Drawable getLockIconDrawable() {
