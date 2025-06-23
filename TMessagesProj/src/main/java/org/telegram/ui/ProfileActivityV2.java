@@ -87,6 +87,7 @@ import org.telegram.ui.Components.CrossfadeDrawable;
 import org.telegram.ui.Components.CubicBezierInterpolator;
 import org.telegram.ui.Components.DotDividerSpan;
 import org.telegram.ui.Components.EmptyStubSpan;
+import org.telegram.ui.Components.Forum.ForumUtilities;
 import org.telegram.ui.Components.LayoutHelper;
 import org.telegram.ui.Components.LinkSpanDrawable;
 import org.telegram.ui.Components.MessagePrivateSeenView;
@@ -163,6 +164,7 @@ public class ProfileActivityV2 extends BaseFragment implements NotificationCente
 
     BaseFragment previousTransitionMainFragment;
     ChatActivityInterface previousTransitionFragment;
+    private ImageLocation prevLoadedImageLocation;
 
     public ProfileActivityV2(Bundle args) {
         this(args, null);
@@ -383,6 +385,67 @@ public class ProfileActivityV2 extends BaseFragment implements NotificationCente
             } else {
                 avatarImage.setImage(videoLocation, ImageLoader.AUTOPLAY_FILTER, thumbLocation, "50_50", avatarDrawable, user);
             }
+        } else if (chatId != 0) {
+            TLRPC.Chat chat = getMessagesController().getChat(chatId);
+            if (chat != null) {
+                currentChat = chat;
+            } else {
+                chat = currentChat;
+            }
+            TLRPC.FileLocation photoBig = null;
+            if (chat.photo != null && !isTopic) {
+                photoBig = chat.photo.photo_big;
+            }
+            TLRPC.TL_forumTopic topic = null;
+
+            if (isTopic) {
+                topic = getMessagesController().getTopicsController().findTopic(chatId, topicId);
+            }
+
+            final ImageLocation imageLocation;
+            final ImageLocation thumbLocation;
+            final ImageLocation videoLocation;
+            if (isTopic) {
+                imageLocation = null;
+                thumbLocation = null;
+                videoLocation = null;
+                ForumUtilities.setTopicIcon(avatarImage, topic, true, true, resourcesProvider);
+            } else if (ChatObject.isMonoForum(currentChat)) {
+                TLRPC.Chat channel = getMessagesController().getMonoForumLinkedChat(currentChat.id);
+                avatarDrawable.setInfo(currentAccount, channel);
+                imageLocation = ImageLocation.getForUserOrChat(channel, ImageLocation.TYPE_BIG);
+                thumbLocation = ImageLocation.getForUserOrChat(channel, ImageLocation.TYPE_SMALL);
+                //videoLocation = avatarsViewPager.getCurrentVideoLocation(thumbLocation, imageLocation);
+                videoLocation = null;
+            } else {
+                avatarDrawable.setInfo(currentAccount, chat);
+                imageLocation = ImageLocation.getForUserOrChat(chat, ImageLocation.TYPE_BIG);
+                thumbLocation = ImageLocation.getForUserOrChat(chat, ImageLocation.TYPE_SMALL);
+                //videoLocation = avatarsViewPager.getCurrentVideoLocation(thumbLocation, imageLocation);
+                videoLocation = null;
+            }
+
+            //boolean initied = avatarsViewPager.initIfEmpty(null, imageLocation, thumbLocation, reload);
+            //if ((imageLocation == null || initied) && isPulledDown) {
+            //    final View view = layoutManager.findViewByPosition(0);
+            //    if (view != null) {
+            //        listView.smoothScrollBy(0, view.getTop() - AndroidUtilities.dp(88), CubicBezierInterpolator.EASE_OUT_QUINT);
+            //    }
+            //}
+            String filter;
+            if (videoLocation != null && videoLocation.imageType == FileLoader.IMAGE_TYPE_ANIMATION) {
+                filter = ImageLoader.AUTOPLAY_FILTER;
+            } else {
+                filter = null;
+            }
+            //if (avatarBig == null && !isTopic) {
+                avatarImage.setImage(videoLocation, filter, thumbLocation, "50_50", avatarDrawable, chat);
+            //}
+            if (imageLocation != null && (prevLoadedImageLocation == null || imageLocation.photoId != prevLoadedImageLocation.photoId)) {
+                prevLoadedImageLocation = imageLocation;
+                getFileLoader().loadFile(imageLocation, chat, null, FileLoader.PRIORITY_LOW, 1);
+            }
+            //avatarImage.getImageReceiver().setVisible(!PhotoViewer.isShowingImage(photoBig) && (getLastStoryViewer() == null || getLastStoryViewer().transitionViewHolder.view != avatarImage), storyView != null);
         }
     }
 
