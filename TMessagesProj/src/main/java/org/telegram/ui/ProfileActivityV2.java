@@ -130,6 +130,7 @@ public class ProfileActivityV2 extends BaseFragment implements NotificationCente
     private AvatarImageView avatarImage;
     private float avatarX;
     private float avatarY;
+    private float expectedAvatarY;
     private ProfileGalleryViewV2 avatarsViewPager;
     private float maxAvatarScale;
     private int minAvatarSize;
@@ -360,14 +361,19 @@ public class ProfileActivityV2 extends BaseFragment implements NotificationCente
                 }
 
                 float avatarScale = AndroidUtilities.lerp(1f, maxAvatarScale, Math.min(1f, avatarAnimationProgress));
+                if (contentAnimationProgress <= 0) {
+                    expectedAvatarY = AndroidUtilities.lerp(-actionsContainer.getMeasuredHeight(), actionBarHeight - AndroidUtilities.dp(48), avatarAnimationProgress);
+                } else {
+                    expectedAvatarY = nameY - avatarImage.getMeasuredHeight() * avatarScale;
+                }
                 if (!expanded && !expandAnimationRunning) {
                     avatarImage.setScaleX(avatarScale);
                     avatarImage.setScaleY(avatarScale);
                     avatarX = topBackgroundView.getMeasuredWidth() / 2 - avatarImage.getMeasuredWidth() / 2 * avatarScale;
                     if (contentAnimationProgress <= 0) {
-                        avatarY = AndroidUtilities.lerp(-actionsContainer.getMeasuredHeight(), actionBarHeight - AndroidUtilities.dp(48), avatarAnimationProgress);
+                        avatarY = expectedAvatarY;
                     } else {
-                        avatarY = nameY - avatarImage.getMeasuredHeight() * avatarScale;
+                        avatarY = expectedAvatarY;
                     }
                     avatarImage.setTranslationX(avatarX);
                     avatarImage.setTranslationY(avatarY);
@@ -595,7 +601,11 @@ public class ProfileActivityV2 extends BaseFragment implements NotificationCente
         final float actualProgress = currentExpandAnimatorValue = AndroidUtilities.lerp(expandAnimatorValues, currentExpandAnimatorFracture = progress);
         final int actionBarHeight = ActionBar.getCurrentActionBarHeight() + (actionBar.getOccupyStatusBar() ? AndroidUtilities.statusBarHeight : 0);
         avatarImage.setTranslationX(AndroidUtilities.lerp(avatarX, 0f, actualProgress));
-        avatarImage.setTranslationY(AndroidUtilities.lerp((float) Math.ceil(avatarY), 0f, actualProgress));
+        if (expanded) {
+            avatarImage.setTranslationY(AndroidUtilities.lerp((float) Math.ceil(expectedAvatarY), 0f, actualProgress));
+        } else {
+            avatarImage.setTranslationY(AndroidUtilities.lerp((float) Math.ceil(avatarY), 0f, actualProgress));
+        }
         avatarImage.setRoundRadius((int) AndroidUtilities.lerp(minAvatarSize * maxAvatarScale / 2, 0f, actualProgress));
         final FrameLayout.LayoutParams params = (FrameLayout.LayoutParams) avatarImage.getLayoutParams();
         params.width = (int) AndroidUtilities.lerp(minAvatarSize, listView.getMeasuredWidth() / maxAvatarScale, actualProgress);
