@@ -143,6 +143,7 @@ public class ProfileActivityV2 extends BaseFragment implements NotificationCente
     private float currentExpandAnimatorValue;
     private float[] expandAnimatorValues = new float[]{0f, 1f};
     private boolean expanded;
+    private boolean isPulledDown;
     private ValueAnimator expandAnimator;
 
 
@@ -231,7 +232,7 @@ public class ProfileActivityV2 extends BaseFragment implements NotificationCente
         if (lastFragment instanceof ChatActivity && ((ChatActivity) lastFragment).themeDelegate != null && ((ChatActivity) lastFragment).themeDelegate.getCurrentTheme() != null) {
             resourcesProvider = lastFragment.getResourceProvider();
         }
-        middleStateProfileExtraHeight = AndroidUtilities.dp(220f);
+        middleStateProfileExtraHeight = AndroidUtilities.dp(200f);
         maxAvatarScale = 2.3f;
         minAvatarSize = AndroidUtilities.dp(42f);
         currentExtraHeight = AndroidUtilities.dp(88f);
@@ -330,7 +331,7 @@ public class ProfileActivityV2 extends BaseFragment implements NotificationCente
                 actionsContainer.setAlpha(actionsProgress);
 
                 final float contentAnimationProgress = Math.max(0f, listOffset - actionsContainer.getMeasuredHeight()) / (middleStateProfileExtraHeight - actionsContainer.getMeasuredHeight());
-                Log.e("STAS", "contentAnimationProgress = " + contentAnimationProgress);
+                //Log.e("STAS", "contentAnimationProgress = " + contentAnimationProgress);
                 if (onlineTextView[1] != null) {
                     int onlineWidth = onlineTextView[1].getMeasuredWidth();
                     int onlineStartX = topBackgroundView.getMeasuredWidth() / 2 - onlineWidth / 2;
@@ -362,7 +363,7 @@ public class ProfileActivityV2 extends BaseFragment implements NotificationCente
 
                 float avatarScale = AndroidUtilities.lerp(1f, maxAvatarScale, Math.min(1f, avatarAnimationProgress));
                 if (contentAnimationProgress <= 0) {
-                    expectedAvatarY = AndroidUtilities.lerp(-actionsContainer.getMeasuredHeight(), actionBarHeight - AndroidUtilities.dp(48), avatarAnimationProgress);
+                    expectedAvatarY = expectedAvatarY + listOffsetDiff;
                 } else {
                     expectedAvatarY = nameY - avatarImage.getMeasuredHeight() * avatarScale;
                 }
@@ -379,7 +380,6 @@ public class ProfileActivityV2 extends BaseFragment implements NotificationCente
                     avatarImage.setTranslationY(avatarY);
                 }
 
-                expandProgress = Math.max(0f, Math.min(1f, ((listOffset - actionsContainer.getMeasuredHeight() - actionBarHeight) / (listView.getMeasuredWidth() - actionsContainer.getMeasuredHeight() - actionBarHeight))));
 
                 listView.layout(0, actionBarHeight, fragmentView.getMeasuredWidth(), actionBarHeight + listView.getMeasuredHeight());
                 listView.setPadding(0, listView.getMeasuredWidth(),0,0);
@@ -392,8 +392,12 @@ public class ProfileActivityV2 extends BaseFragment implements NotificationCente
                     giftsView.setExpandProgress(1 - avatarAnimationProgress);
                 }
 
-                if (expandProgress > 0.35f) {
+                expandProgress = Math.max(0f, Math.min(1f, ((listOffset + actionBarHeight) / (listView.getMeasuredWidth() + actionsContainer.getMeasuredHeight()))));
+                //Log.e("STAS", "expandProgress = " + expandProgress);
+
+                if (expandProgress > 0.75f) {
                     if (!expanded && !expandAnimationRunning) {
+                        isPulledDown = true;
                         Log.e("STAS", "expand");
                         expandAnimationRunning = true;
                         float value = AndroidUtilities.lerp(expandAnimatorValues, currentExpandAnimatorFracture);
@@ -404,6 +408,7 @@ public class ProfileActivityV2 extends BaseFragment implements NotificationCente
                     }
                 } else {
                     if (expanded && !expandAnimationRunning) {
+                        isPulledDown = false;
                         Log.e("STAS", "collapse");
                         expandAnimationRunning = true;
                         float value = AndroidUtilities.lerp(expandAnimatorValues, currentExpandAnimatorFracture);
@@ -1566,7 +1571,7 @@ public class ProfileActivityV2 extends BaseFragment implements NotificationCente
                     final View view = layoutManager.findViewByPosition(0);
                     if (view != null) {
                         final int actionBarHeight = ActionBar.getCurrentActionBarHeight() + (actionBar.getOccupyStatusBar() ? AndroidUtilities.statusBarHeight : 0);
-                        if (expanded) {
+                        if (isPulledDown) {
                             listView.smoothScrollBy(0, view.getTop() - listView.getMeasuredWidth() + actionBarHeight - actionsContainer.getMeasuredHeight() - AndroidUtilities.dp(16), CubicBezierInterpolator.EASE_OUT_QUINT);
                         } else {
                             listView.smoothScrollBy(0, view.getTop() - middleStateProfileExtraHeight, CubicBezierInterpolator.EASE_OUT_QUINT);
