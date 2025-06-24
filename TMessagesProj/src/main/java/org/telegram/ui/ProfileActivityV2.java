@@ -123,6 +123,8 @@ public class ProfileActivityV2 extends BaseFragment implements NotificationCente
     private FrameLayout topContentView;
     public ProfileGiftsViewV2 giftsView;
     private AvatarImageView avatarImage;
+    private float avatarX;
+    private float avatarY;
     private ProfileGalleryViewV2 avatarsViewPager;
     private float maxAvatarScale;
     private int minAvatarSize;
@@ -139,6 +141,7 @@ public class ProfileActivityV2 extends BaseFragment implements NotificationCente
 
 
     private float listOffset;
+    private float listOffsetDiff;
     private ActionsContainer actionsContainer;
     private int middleStateProfileExtraHeight;
     private float currentExtraHeight;
@@ -148,6 +151,9 @@ public class ProfileActivityV2 extends BaseFragment implements NotificationCente
     private String nameTextViewRightDrawableContentDescription = null;
     private String nameTextViewRightDrawable2ContentDescription = null;
     private SimpleTextView[] onlineTextView = new SimpleTextView[4];
+
+    private float onlineX;
+    private float onlineY;
     private ActionBarMenuItem otherItem;
     private Theme.ResourcesProvider resourcesProvider;
     private RecyclerListView listView;
@@ -218,7 +224,7 @@ public class ProfileActivityV2 extends BaseFragment implements NotificationCente
         if (lastFragment instanceof ChatActivity && ((ChatActivity) lastFragment).themeDelegate != null && ((ChatActivity) lastFragment).themeDelegate.getCurrentTheme() != null) {
             resourcesProvider = lastFragment.getResourceProvider();
         }
-        middleStateProfileExtraHeight = AndroidUtilities.dp(210f);
+        middleStateProfileExtraHeight = AndroidUtilities.dp(190f);
         maxAvatarScale = 2.5f;
         minAvatarSize = AndroidUtilities.dp(42f);
         currentExtraHeight = AndroidUtilities.dp(88f);
@@ -256,14 +262,12 @@ public class ProfileActivityV2 extends BaseFragment implements NotificationCente
                 int newProfileContainerHeight = (int) (middleStateProfileExtraHeight * avatarAnimationProgress);
                 topBackgroundView.measure(View.MeasureSpec.makeMeasureSpec(fragmentView.getMeasuredWidth(), MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(actionBarHeight + newProfileContainerHeight, MeasureSpec.EXACTLY));
 
-                float avatarScale = AndroidUtilities.lerp(1f, maxAvatarScale, Math.min(1f, avatarAnimationProgress));
                 if (!expanded && ! expandAnimationRunning) {
                     avatarImage.measure(
                             View.MeasureSpec.makeMeasureSpec(minAvatarSize, MeasureSpec.EXACTLY),
                             View.MeasureSpec.makeMeasureSpec(minAvatarSize, MeasureSpec.EXACTLY)
                     );
-                    avatarImage.setScaleX(avatarScale);
-                    avatarImage.setScaleY(avatarScale);
+
                     for (int a = 0; a < nameTextView.length; a++) {
                         if (nameTextView[a] == null) {
                             continue;
@@ -289,40 +293,49 @@ public class ProfileActivityV2 extends BaseFragment implements NotificationCente
                 );
             }
 
+
             @Override
             protected void onLayout(boolean changed, int left, int top, int right, int bottom) {
                 super.onLayout(changed, left, top, right, bottom);
                 final int actionBarHeight = ActionBar.getCurrentActionBarHeight() + (actionBar.getOccupyStatusBar() ? AndroidUtilities.statusBarHeight : 0);
-                int actionsTop = Math.max(topBackgroundView.getMeasuredHeight() - actionsContainer.getMeasuredHeight() - AndroidUtilities.dp(16f), actionBarHeight);
-                avatarAnimationProgress = (float) listOffset / middleStateProfileExtraHeight;
+                avatarAnimationProgress = listOffset / middleStateProfileExtraHeight;
+                final float contentAnimationProgress = Math.max(0f, (listOffset - actionsContainer.getMeasuredHeight() - AndroidUtilities.dp(36f)) / middleStateProfileExtraHeight);
+                float avatarScale = AndroidUtilities.lerp(1f, maxAvatarScale, Math.min(1f, avatarAnimationProgress));
 
+               // Log.e("STAS", "contentAnimationProgress = " + contentAnimationProgress);
                 expandProgress = Math.max(0f, Math.min(1f, ((listOffset - actionsContainer.getMeasuredHeight() - actionBarHeight) / (listView.getMeasuredWidth() - actionsContainer.getMeasuredHeight() - actionBarHeight))));
                 int newProfileContainerHeight = (int) (middleStateProfileExtraHeight * avatarAnimationProgress);
                 topBackgroundView.layout(0, 0, topBackgroundView.getMeasuredWidth(), actionBarHeight + newProfileContainerHeight);
-                int avatarStartX = topBackgroundView.getMeasuredWidth() / 2 - avatarImage.getMeasuredWidth()/ 2;
-                int avatarStartY = (int) ((actionBarHeight - AndroidUtilities.dp(30f) - ((actionBarHeight + AndroidUtilities.dp(30f)) * (1f - avatarAnimationProgress))));
-                avatarImage.layout(avatarStartX, avatarStartY, avatarStartX + avatarImage.getMeasuredWidth(), avatarStartY + avatarImage.getMeasuredHeight());
-                int nameMaxBottom = (int) ((actionBar.getOccupyStatusBar() ? AndroidUtilities.statusBarHeight : 0) + ActionBar.getCurrentActionBarHeight() / 2.0f - 21 * AndroidUtilities.density + actionBar.getTranslationY());
-                for (int a = 0; a < nameTextView.length; a++) {
-                    if (nameTextView[a] == null) {
-                        continue;
-                    }
-                    int nameWidth = nameTextView[a].getMeasuredWidth();
-                    int nameStartX = topBackgroundView.getMeasuredWidth() / 2 - nameWidth / 2;
-                    int minNameY = (int) ((actionBar.getOccupyStatusBar() ? AndroidUtilities.statusBarHeight : 0) + ActionBar.getCurrentActionBarHeight() / 2.0f - 21 * AndroidUtilities.density + actionBar.getTranslationY());
-                    if (expandAnimationRunning) {
+                if (!expanded && !expandAnimationRunning) {
+                    avatarImage.setScaleX(avatarScale);
+                    avatarImage.setScaleY(avatarScale);
+                    avatarX = topBackgroundView.getMeasuredWidth() / 2 - avatarImage.getMeasuredWidth() / 2 * avatarScale;
+                    if (avatarAnimationProgress < 1f) {
+                        avatarY = AndroidUtilities.lerp(- AndroidUtilities.dp(64), actionBarHeight - AndroidUtilities.dp(48), avatarAnimationProgress);
                     } else {
-                        if (avatarAnimationProgress < 1f) {
-                            nameX = (int) (AndroidUtilities.lerp(AndroidUtilities.dpf2(64f), nameStartX, avatarAnimationProgress));
-                            nameTextView[a].setTranslationX(nameX);
-                            nameY = (int) (AndroidUtilities.lerp((float) minNameY , AndroidUtilities.dp(160f), avatarAnimationProgress));
-                            nameTextView[a].setTranslationY(nameY);
-                        } else {
-                            nameY = topBackgroundView.getMeasuredHeight() - actionsContainer.getMeasuredHeight() - AndroidUtilities.dp(16f) - nameTextView[1].getMeasuredHeight() * 1.67f;
-                            nameTextView[a].setTranslationY(nameY);
+                        avatarY += listOffsetDiff;
+                    }
+                    avatarImage.setTranslationX(avatarX);
+                    avatarImage.setTranslationY(avatarY);
+                }
+                int nameMaxBottom = (int) ((actionBar.getOccupyStatusBar() ? AndroidUtilities.statusBarHeight : 0) + ActionBar.getCurrentActionBarHeight() / 2.0f - 21 * AndroidUtilities.density + actionBar.getTranslationY());
+                float nameWidth = nameTextView[1].getPaint().measureText(nameTextView[1].getText().toString());
+                if (nameTextView[1] != null) {
+                    float nameStartX = topContentView.getMeasuredWidth() / 2 - nameWidth / 2;
+                    int minNameY = (int) ((actionBar.getOccupyStatusBar() ? AndroidUtilities.statusBarHeight : 0) + ActionBar.getCurrentActionBarHeight() / 2.0f - 21 * AndroidUtilities.density + actionBar.getTranslationY());
+                    if (!expandAnimationRunning && !expanded) {
+                        if (avatarAnimationProgress <= 1f) {
+                            nameX = (int) (AndroidUtilities.lerp(AndroidUtilities.dp(64f), nameStartX, avatarAnimationProgress));
+                            nameTextView[1].setTranslationX(nameX);
                         }
+                        nameY = Math.max(minNameY, avatarY + avatarImage.getMeasuredHeight() * avatarScale);
+                        nameTextView[1].setTranslationY(nameY);
+                    } else if (expanded && !expandAnimationRunning) {
+                        nameY = nameY + listOffsetDiff;
+                        nameTextView[1].setTranslationY(nameY);
                     }
                 }
+
                 int onlineTextMaxBottom = nameMaxBottom;
                 for (int a = 0; a < onlineTextView.length; a++) {
                     if (onlineTextView[a] == null) {
@@ -330,36 +343,35 @@ public class ProfileActivityV2 extends BaseFragment implements NotificationCente
                     }
                     int onlineWidth = onlineTextView[a].getMeasuredWidth();
                     int onlineStartX = topBackgroundView.getMeasuredWidth() / 2 - onlineWidth / 2;
-                    int onlineX;
-                    if (avatarAnimationProgress > 1f) {
-                        onlineX = onlineStartX;
-                    } else {
-                        onlineX = (int)(AndroidUtilities.lerp(AndroidUtilities.dpf2(64f), onlineStartX, avatarAnimationProgress));
+                    if (!expandAnimationRunning) {
+                        if (avatarAnimationProgress < 1f) {
+                            onlineX = (int) (AndroidUtilities.lerp(AndroidUtilities.dpf2(64f), onlineStartX, avatarAnimationProgress));
+                            onlineTextView[a].setTranslationX(onlineX);
+                            onlineY = (int) nameY + AndroidUtilities.dp(24);
+                            onlineTextView[a].setTranslationY(onlineY);
+                        } else {
+                            onlineY = (int) nameY + AndroidUtilities.dp(24);
+                            onlineTextView[a].setTranslationY(onlineY);
+                        }
                     }
-                    onlineTextView[a].layout(
-                            onlineX,
-                            nameMaxBottom,
-                            onlineX + onlineWidth,
-                            nameMaxBottom + onlineTextView[a].getMeasuredHeight()
-                    );
                     onlineTextMaxBottom = Math.max(onlineTextMaxBottom, nameMaxBottom + onlineTextView[a].getMeasuredHeight());
                 }
+                float actionsTop = onlineY + AndroidUtilities.dp(36f);
                 int actionsBottom = topBackgroundView.getMeasuredHeight() - AndroidUtilities.dp(16f);
                 float actionsScaleY;
                 if (actionsBottom < actionsTop + actionsContainer.getMeasuredHeight()) {
-                    Log.e("STAS", "actionsBottom = " + actionsBottom + " actuins top = " + (actionsTop + actionsContainer.getMeasuredHeight()));
                     actionsScaleY = (float) actionsBottom / (actionsTop + actionsContainer.getMeasuredHeight());
                 } else {
                     actionsScaleY = 1f;
                 }
                 actionsContainer.layout(
                         AndroidUtilities.dp(16f),
-                        actionsTop,
+                        (int) actionsTop,
                         topBackgroundView.getMeasuredWidth() - AndroidUtilities.dp(16f),
-                        topBackgroundView.getMeasuredHeight() - AndroidUtilities.dp(16f)
+                        (int) Math.min(actionsTop + actionsContainer.getMeasuredHeight() + AndroidUtilities.dp(16f), topBackgroundView.getBottom())
                 );
-                actionsContainer.setScaleY(actionsScaleY);
-                actionsContainer.setAlpha(actionsScaleY);
+                //actionsContainer.setScaleY(actionsScaleY);
+                //actionsContainer.setAlpha(actionsScaleY);
                 listView.layout(0, actionBarHeight, fragmentView.getMeasuredWidth(), actionBarHeight + listView.getMeasuredHeight());
                 listView.setPadding(0, listView.getMeasuredWidth(),0,0);
                 if (giftsView != null) {
@@ -371,7 +383,7 @@ public class ProfileActivityV2 extends BaseFragment implements NotificationCente
                     giftsView.setExpandProgress(1 - avatarAnimationProgress);
                 }
 
-                if (expandProgress > 0.4f) {
+                if (expandProgress > 0.35f) {
                     if (!expanded && !expandAnimationRunning) {
                         Log.e("STAS", "expand");
                         expandAnimationRunning = true;
@@ -397,8 +409,6 @@ public class ProfileActivityV2 extends BaseFragment implements NotificationCente
         contentView = (SizeNotifierFrameLayout) fragmentView;
         FrameLayout frameLayout = (FrameLayout) fragmentView;
 
-        initListView(context);
-        frameLayout.addView(listView);
 
         topBackgroundView = new TopView(context);
         topBackgroundView.setBackgroundColor(getThemedColor(Theme.key_avatar_backgroundActionBarBlue));
@@ -411,6 +421,8 @@ public class ProfileActivityV2 extends BaseFragment implements NotificationCente
         frameLayout.addView(avatarsViewPager);
         initAvatar(context);
         frameLayout.addView(avatarImage, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT));
+        initListView(context);
+        frameLayout.addView(listView);
         initNameTextView(context);
         initOnlineTextView(context);
         initActions(context);
@@ -464,6 +476,8 @@ public class ProfileActivityV2 extends BaseFragment implements NotificationCente
         };
         avatarImage.getImageReceiver().setAllowDecodeSingleFrame(true);
         avatarImage.setRoundRadius(getSmallAvatarRoundRadius());
+        avatarImage.setPivotX(0);
+        avatarImage.setPivotY(0);
         if (userId != 0) {
             TLRPC.User user = getMessagesController().getUser(userId);
             if (user == null) {
@@ -568,18 +582,17 @@ public class ProfileActivityV2 extends BaseFragment implements NotificationCente
         final float actualProgress = currentExpandAnimatorValue = AndroidUtilities.lerp(expandAnimatorValues, currentExpandAnimatorFracture = progress);
         final int actionBarHeight = ActionBar.getCurrentActionBarHeight() + (actionBar.getOccupyStatusBar() ? AndroidUtilities.statusBarHeight : 0);
         int expandedHeight = listView.getMeasuredWidth();
-        //avatarImage.setTranslationX(AndroidUtilities.lerp(avatarX, 0f, actualProgress));
-        //avatarImage.setTranslationY(AndroidUtilities.lerp((float) Math.ceil(avatarY), 0f, actualProgress));
+        avatarImage.setTranslationX(AndroidUtilities.lerp(avatarX, 0f, actualProgress));
+        avatarImage.setTranslationY(AndroidUtilities.lerp((float) Math.ceil(avatarY), 0f, actualProgress));
         avatarImage.setRoundRadius((int) AndroidUtilities.lerp(minAvatarSize * maxAvatarScale / 2, 0f, actualProgress));
         final FrameLayout.LayoutParams params = (FrameLayout.LayoutParams) avatarImage.getLayoutParams();
         params.width = (int) AndroidUtilities.lerp(minAvatarSize, expandedHeight / maxAvatarScale, actualProgress);
-        params.height = (int) AndroidUtilities.lerp(AndroidUtilities.dpf2(42f), (expandedHeight + actionBarHeight) / maxAvatarScale, actualProgress);
+        params.height = (int) AndroidUtilities.lerp(minAvatarSize, (listView.getMeasuredWidth()) / maxAvatarScale, actualProgress);
 
         nameTextView[1].setTranslationX(AndroidUtilities.lerp(nameX, AndroidUtilities.dp(16f), actualProgress));
-        nameTextView[1].setTranslationY(AndroidUtilities.lerp(nameY, actionsContainer.getTop() - nameTextView[1].getMeasuredHeight() - AndroidUtilities.dp(16f), progress));
         nameTextView[1].setScaleX(AndroidUtilities.lerp(1f, 1.67f, actualProgress));
         nameTextView[1].setScaleY(AndroidUtilities.lerp(1f, 1.67f, actualProgress));
-        onlineTextView[1].setTranslationX(AndroidUtilities.lerp(onlineTextView[1].getX(), AndroidUtilities.dp(16f), actualProgress));
+        onlineTextView[1].setTranslationX(AndroidUtilities.lerp(onlineX, AndroidUtilities.dp(16f), actualProgress));
         onlineTextView[1].setScaleX(AndroidUtilities.lerp(1f, 1.67f, actualProgress));
         onlineTextView[1].setScaleY(AndroidUtilities.lerp(1f, 1.67f, actualProgress));
         avatarImage.requestLayout();
@@ -1478,10 +1491,10 @@ public class ProfileActivityV2 extends BaseFragment implements NotificationCente
             nameTextView[a].setPadding(0, AndroidUtilities.dp(6), 0, 0);
             nameTextView[a].setTextSize(18);
             nameTextView[a].setGravity(Gravity.LEFT);
-            nameTextView[a].setTypeface(AndroidUtilities.bold());
-            nameTextView[a].setLeftDrawableTopPadding(-AndroidUtilities.dp(1.3f));
             nameTextView[a].setPivotX(0);
             nameTextView[a].setPivotY(0);
+            nameTextView[a].setTypeface(AndroidUtilities.bold());
+            nameTextView[a].setLeftDrawableTopPadding(-AndroidUtilities.dp(1.3f));
             nameTextView[a].setAlpha(a == 0 ? 0.0f : 1.0f);
             if (a == 1) {
                 nameTextView[a].setScrollNonFitText(true);
@@ -1569,9 +1582,10 @@ public class ProfileActivityV2 extends BaseFragment implements NotificationCente
                 if (top >= 0 && adapterPosition == 0) {
                     newOffset = top;
                 }
+                listOffsetDiff = newOffset - listOffset;
                 if (listOffset != newOffset) {
                     listOffset = newOffset;
-                    topBackgroundView.requestLayout();
+                    topContentView.requestLayout();
                 }
             }
         });
