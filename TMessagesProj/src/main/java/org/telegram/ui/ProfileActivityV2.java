@@ -41,6 +41,7 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 
 import androidx.annotation.NonNull;
+import androidx.collection.LongSparseArray;
 import androidx.core.content.ContextCompat;
 import androidx.core.graphics.ColorUtils;
 import androidx.recyclerview.widget.LinearLayoutManager;
@@ -169,6 +170,9 @@ public class ProfileActivityV2 extends BaseFragment implements NotificationCente
     private float onlineX;
     private float onlineY;
     private ActionBarMenuItem otherItem;
+    private final static int start_secret_chat = 20;
+    private final static int gift_premium = 38;
+    private final static int bot_privacy = 44;
     private Theme.ResourcesProvider resourcesProvider;
     private RecyclerListView listView;
     private ListAdapter listAdapter;
@@ -179,6 +183,8 @@ public class ProfileActivityV2 extends BaseFragment implements NotificationCente
     private final Drawable[] premiumStarDrawable = new Drawable[2];
     private Drawable lockIconDrawable;
     private Long emojiStatusGiftId;
+
+    private long mergeDialogId;
 
     private boolean fragmentViewAttached; /** READY */
 
@@ -205,6 +211,7 @@ public class ProfileActivityV2 extends BaseFragment implements NotificationCente
     private TLRPC.EncryptedChat currentEncryptedChat;
     private TLRPC.FileLocation avatar;
     private TLRPC.FileLocation avatarBig;
+    private LongSparseArray<TLRPC.ChatParticipant> participantsMap = new LongSparseArray<>();
 
     private boolean hasFallbackPhoto;
     private boolean[] isOnline = new boolean[1];
@@ -2189,6 +2196,104 @@ public class ProfileActivityV2 extends BaseFragment implements NotificationCente
             return;
         }
         presentFragment(new ChatActivity(args));
+    }
+
+    public void setChatInfo(TLRPC.ChatFull value) {
+        chatInfo = value;
+        if (chatInfo != null && chatInfo.migrated_from_chat_id != 0 && mergeDialogId == 0) {
+            mergeDialogId = -chatInfo.migrated_from_chat_id;
+            getMediaDataController().getMediaCounts(mergeDialogId, topicId, classGuid);
+        }
+        //if (sharedMediaLayout != null) {
+        //    sharedMediaLayout.setChatInfo(chatInfo);
+        //}
+        if (avatarsViewPager != null && !isTopic) {
+            avatarsViewPager.setChatInfo(chatInfo);
+        }
+        //if (storyView != null && chatInfo != null) {
+        //    storyView.setStories(chatInfo.stories);
+        //}
+        if (giftsView != null) {
+            giftsView.update();
+        }
+        if (avatarImage != null) {
+            avatarImage.setHasStories(needInsetForStories());
+        }
+        fetchUsersFromChannelInfo();
+        if (chatId != 0) {
+            otherItem.setSubItemShown(gift_premium, !BuildVars.IS_BILLING_UNAVAILABLE && !getMessagesController().premiumPurchaseBlocked() && chatInfo != null && chatInfo.stargifts_available);
+        }
+    }
+
+    public void setUserInfo(TLRPC.UserFull value, ProfileChannelCell.ChannelMessageFetcher channelMessageFetcher, ProfileBirthdayEffect.BirthdayEffectFetcher birthdayAssetsFetcher) {
+        userInfo = value;
+        //if (storyView != null) {
+        //    storyView.setStories(userInfo.stories);
+        //}
+        if (giftsView != null) {
+            giftsView.update();
+        }
+        if (avatarImage != null) {
+            avatarImage.setHasStories(needInsetForStories());
+        }
+        //if (sharedMediaLayout != null) {
+        //    sharedMediaLayout.setUserInfo(userInfo);
+        //}
+        //if (profileChannelMessageFetcher == null) {
+        //    profileChannelMessageFetcher = channelMessageFetcher;
+        //}
+        //if (profileChannelMessageFetcher == null) {
+        //    profileChannelMessageFetcher = new ProfileChannelCell.ChannelMessageFetcher(currentAccount);
+        //}
+        //profileChannelMessageFetcher.subscribe(() -> updateListAnimated(false));
+        //profileChannelMessageFetcher.fetch(userInfo);
+        //if (birthdayFetcher == null) {
+        //    birthdayFetcher = birthdayAssetsFetcher;
+        //}
+        //if (birthdayFetcher == null) {
+        //    birthdayFetcher = ProfileBirthdayEffect.BirthdayEffectFetcher.of(currentAccount, userInfo, birthdayFetcher);
+        //    createdBirthdayFetcher = birthdayFetcher != null;
+        //}
+        //if (birthdayFetcher != null) {
+        //    birthdayFetcher.subscribe(this::createBirthdayEffect);
+        //}
+        if (otherItem != null) {
+            otherItem.setSubItemShown(start_secret_chat, DialogObject.isEmpty(getMessagesController().isUserContactBlocked(userId)));
+            if (hasPrivacyCommand()) {
+                otherItem.showSubItem(bot_privacy);
+            } else {
+                otherItem.hideSubItem(bot_privacy);
+            }
+        }
+    }
+
+    public boolean hasPrivacyCommand() {
+        if (!isBot) return false;
+        if (userInfo == null || userInfo.bot_info == null) return false;
+        if (userInfo.bot_info.privacy_policy_url != null) return true;
+        for (TLRPC.TL_botCommand command : userInfo.bot_info.commands) {
+            if ("privacy".equals(command.command)) {
+                return true;
+            }
+        }
+        return true;
+    }
+
+
+    private void fetchUsersFromChannelInfo() {
+        if (currentChat == null || !currentChat.megagroup) {
+            return;
+        }
+        if (chatInfo instanceof TLRPC.TL_channelFull && chatInfo.participants != null) {
+            for (int a = 0; a < chatInfo.participants.participants.size(); a++) {
+                TLRPC.ChatParticipant chatParticipant = chatInfo.participants.participants.get(a);
+                participantsMap.put(chatParticipant.user_id, chatParticipant);
+            }
+        }
+    }
+
+    private boolean needInsetForStories() {
+        return getMessagesController().getStoriesController().hasStories(getDialogId()) && !isTopic;
     }
 
     private class ListAdapter extends RecyclerListView.SelectionAdapter {
