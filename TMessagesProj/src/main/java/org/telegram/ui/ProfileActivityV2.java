@@ -341,11 +341,9 @@ public class ProfileActivityV2 extends BaseFragment implements NotificationCente
                 float onlineWidth = onlineTextView[1].getPaint().measureText(onlineTextView[1].getText().toString());
                 float onlineStartX = topContentView.getMeasuredWidth() / 2f - onlineWidth / 2f;
                 onlineX = (int) (AndroidUtilities.lerp(AndroidUtilities.dp(64f), onlineStartX, contentAnimationProgress));
-                Log.e("STAS", "onlineX = " + onlineX);
                 if (onlineTextView[1] != null) {
                     if (!expandAnimationRunning && !expanded) {
                         if (contentAnimationProgress < 1f) {
-                            Log.e("STAS", "set onlineX" );
                             onlineTextView[1].setTranslationX(onlineX);
                         }
                     }
@@ -413,8 +411,11 @@ public class ProfileActivityV2 extends BaseFragment implements NotificationCente
                         float value = AndroidUtilities.lerp(expandAnimatorValues, currentExpandAnimatorFracture);
                         expandAnimatorValues[0] = value;
                         expandAnimatorValues[1] = 1f;
+                        Log.e("STAS", "durationFactor " + durationFactor);
                         overlaysView.setOverlaysVisible(true, durationFactor);
                         expandAnimator.cancel();
+                        expandAnimator.setInterpolator(CubicBezierInterpolator.EASE_BOTH);
+                        expandAnimator.setDuration((long) ((1f - value) * 250f / durationFactor));
                         expandAnimator.start();
                     }
                 } else {
@@ -429,6 +430,8 @@ public class ProfileActivityV2 extends BaseFragment implements NotificationCente
                         avatarsViewPager.setVisibility(View.GONE);
                         overlaysView.setOverlaysVisible(false, durationFactor);
                         expandAnimator.cancel();
+                        expandAnimator.setDuration((long) (value * 250f / durationFactor));
+                        expandAnimator.setInterpolator(CubicBezierInterpolator.EASE_BOTH);
                         expandAnimator.start();
                     }
                 }
@@ -449,6 +452,7 @@ public class ProfileActivityV2 extends BaseFragment implements NotificationCente
         frameLayout.addView(listView);
 
         overlaysView = new OverlaysView(context);
+        overlaysView.setAlphaValue(0f, false);
         avatarsViewPager = new ProfileGalleryViewV2(context, userId != 0 ? userId : -chatId, actionBar, listView, avatarImage, getClassGuid(), overlaysView);
         topContentView.addView(avatarsViewPager, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT));
         topContentView.addView(overlaysView);
@@ -639,6 +643,8 @@ public class ProfileActivityV2 extends BaseFragment implements NotificationCente
         if (giftsView != null) {
             giftsView.setExpandProgress(actualProgress);
         }
+
+        overlaysView.setAlphaValue(actualProgress, false);
 
         avatarImage.requestLayout();
     }
