@@ -22,6 +22,7 @@ import android.graphics.drawable.GradientDrawable;
 import android.graphics.drawable.StateListDrawable;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.SystemClock;
 import android.text.SpannableString;
 import android.text.SpannableStringBuilder;
 import android.text.Spanned;
@@ -30,6 +31,7 @@ import android.util.Property;
 import android.util.SparseIntArray;
 import android.view.Gravity;
 import android.view.MotionEvent;
+import android.view.VelocityTracker;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.accessibility.AccessibilityNodeInfo;
@@ -113,6 +115,7 @@ import org.telegram.ui.Stars.ProfileGiftsViewV2;
 import org.telegram.ui.Stars.StarGiftPatterns;
 import org.telegram.ui.Stars.StarsController;
 
+import java.util.Arrays;
 import java.util.concurrent.CountDownLatch;
 
 public class ProfileActivityV2 extends BaseFragment implements NotificationCenter.NotificationCenterDelegate {
@@ -120,6 +123,9 @@ public class ProfileActivityV2 extends BaseFragment implements NotificationCente
     private SizeNotifierFrameLayout contentView;
 
     private TopView topBackgroundView;
+    private OverlaysView overlaysView;
+    private int overlayCountVisible;
+    private float listViewVelocityY;
     private int searchTransitionOffset;
     private float mediaHeaderAnimationProgress;
     private int playProfileAnimation;
@@ -135,7 +141,7 @@ public class ProfileActivityV2 extends BaseFragment implements NotificationCente
     private float maxAvatarScale;
     private int minAvatarSize;
     private AvatarDrawable avatarDrawable;
-    private float avatarAnimationProgress;
+    private float listFromStartToMiddleProgress;
 
     private float expandProgress;
     private boolean expandAnimationRunning;
@@ -236,7 +242,7 @@ public class ProfileActivityV2 extends BaseFragment implements NotificationCente
         maxAvatarScale = 2.3f;
         minAvatarSize = AndroidUtilities.dp(42f);
         currentExtraHeight = AndroidUtilities.dp(88f);
-        avatarAnimationProgress = 1f;
+        listFromStartToMiddleProgress = 1f;
         nameTextScale = 1f;
         listOffset = middleStateProfileExtraHeight;
         fragmentView = new SizeNotifierFrameLayout(context) {
@@ -266,9 +272,9 @@ public class ProfileActivityV2 extends BaseFragment implements NotificationCente
             @Override
             protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
                 super.onMeasure(widthMeasureSpec, heightMeasureSpec);
-                avatarAnimationProgress = (float) listOffset / middleStateProfileExtraHeight;
+                listFromStartToMiddleProgress = (float) listOffset / middleStateProfileExtraHeight;
                 final int actionBarHeight = ActionBar.getCurrentActionBarHeight() + (actionBar.getOccupyStatusBar() ? AndroidUtilities.statusBarHeight : 0);
-                int newProfileContainerHeight = (int) (middleStateProfileExtraHeight * avatarAnimationProgress);
+                int newProfileContainerHeight = (int) (middleStateProfileExtraHeight * listFromStartToMiddleProgress);
                 topBackgroundView.measure(View.MeasureSpec.makeMeasureSpec(fragmentView.getMeasuredWidth(), MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(actionBarHeight + newProfileContainerHeight, MeasureSpec.EXACTLY));
 
                 if (!expanded && ! expandAnimationRunning) {
@@ -312,9 +318,9 @@ public class ProfileActivityV2 extends BaseFragment implements NotificationCente
                 super.onLayout(changed, left, top, right, bottom);
                 final int actionBarHeight = ActionBar.getCurrentActionBarHeight() + (actionBar.getOccupyStatusBar() ? AndroidUtilities.statusBarHeight : 0);
 
-                avatarAnimationProgress = listOffset / middleStateProfileExtraHeight;
+                listFromStartToMiddleProgress = listOffset / middleStateProfileExtraHeight;
 
-                int newProfileContainerHeight = (int) (middleStateProfileExtraHeight * avatarAnimationProgress);
+                int newProfileContainerHeight = (int) (middleStateProfileExtraHeight * listFromStartToMiddleProgress);
                 int topBackgroundHeight = actionBarHeight + newProfileContainerHeight;
                 topBackgroundView.layout(0, 0, topBackgroundView.getMeasuredWidth(), topBackgroundHeight);
 
@@ -363,7 +369,7 @@ public class ProfileActivityV2 extends BaseFragment implements NotificationCente
                     nameTextView[1].setPivotY(nameTextView[1].getMeasuredHeight());
                 }
 
-                float avatarScale = AndroidUtilities.lerp(1f, maxAvatarScale, Math.min(1f, avatarAnimationProgress));
+                float avatarScale = AndroidUtilities.lerp(1f, maxAvatarScale, Math.min(1f, listFromStartToMiddleProgress));
                 if (contentAnimationProgress <= 0) {
                     expectedAvatarY = expectedAvatarY + listOffsetDiff;
                 } else {
@@ -385,17 +391,19 @@ public class ProfileActivityV2 extends BaseFragment implements NotificationCente
 
                 listView.layout(0, actionBarHeight, fragmentView.getMeasuredWidth(), actionBarHeight + listView.getMeasuredHeight());
                 listView.setPadding(0, listView.getMeasuredWidth(),0,0);
-                if (giftsView != null) {
+                if (giftsView != null && !expanded && !expandAnimationRunning) {
                     giftsView.setExpandCoords(
                             topBackgroundView.getMeasuredWidth() - AndroidUtilities.dp(40),
                             false,
                             (actionBar.getOccupyStatusBar() ? AndroidUtilities.statusBarHeight : 0) + ActionBar.getCurrentActionBarHeight() + middleStateProfileExtraHeight
                     );
-                    giftsView.setExpandProgress(1 - avatarAnimationProgress);
+                    giftsView.setExpandProgress(1 - listFromStartToMiddleProgress);
                 }
 
                 expandProgress = Math.max(0f, Math.min(1f, ((listOffset + actionBarHeight) / (listView.getMeasuredWidth() + actionsContainer.getMeasuredHeight()))));
                 //Log.e("STAS", "expandProgress = " + expandProgress);
+
+                final float durationFactor = Math.min(AndroidUtilities.dpf2(2000f), Math.max(AndroidUtilities.dpf2(1100f), Math.abs(listViewVelocityY))) / AndroidUtilities.dpf2(1100f);
 
                 if (expandProgress > 0.75f) {
                     if (!expanded && !expandAnimationRunning) {
@@ -405,6 +413,7 @@ public class ProfileActivityV2 extends BaseFragment implements NotificationCente
                         float value = AndroidUtilities.lerp(expandAnimatorValues, currentExpandAnimatorFracture);
                         expandAnimatorValues[0] = value;
                         expandAnimatorValues[1] = 1f;
+                        overlaysView.setOverlaysVisible(true, durationFactor);
                         expandAnimator.cancel();
                         expandAnimator.start();
                     }
@@ -418,6 +427,7 @@ public class ProfileActivityV2 extends BaseFragment implements NotificationCente
                         expandAnimatorValues[1] = 0f;
                         avatarImage.setVisibility(View.VISIBLE);
                         avatarsViewPager.setVisibility(View.GONE);
+                        overlaysView.setOverlaysVisible(false, durationFactor);
                         expandAnimator.cancel();
                         expandAnimator.start();
                     }
@@ -438,10 +448,14 @@ public class ProfileActivityV2 extends BaseFragment implements NotificationCente
         initListView(context);
         frameLayout.addView(listView);
 
-        avatarsViewPager = new ProfileGalleryViewV2(context, userId != 0 ? userId : -chatId, actionBar, listView, avatarImage, getClassGuid(), null);
+        overlaysView = new OverlaysView(context);
+        avatarsViewPager = new ProfileGalleryViewV2(context, userId != 0 ? userId : -chatId, actionBar, listView, avatarImage, getClassGuid(), overlaysView);
         topContentView.addView(avatarsViewPager, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT));
+        topContentView.addView(overlaysView);
 
         initAvatar(context);
+        giftsView = new ProfileGiftsViewV2(context, currentAccount, getDialogId(), topBackgroundView, avatarImage, resourcesProvider);
+        topContentView.addView(giftsView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT));
         topContentView.addView(avatarImage, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT));
         initNameTextView(context);
         initOnlineTextView(context);
@@ -449,8 +463,6 @@ public class ProfileActivityV2 extends BaseFragment implements NotificationCente
         updateProfileData();
         initActions(context);
         topContentView.addView(actionsContainer);
-        giftsView = new ProfileGiftsViewV2(context, currentAccount, getDialogId(), topBackgroundView, avatarImage, resourcesProvider);
-        topContentView.addView(giftsView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT));
         frameLayout.addView(actionBar);
 
 
@@ -623,6 +635,10 @@ public class ProfileActivityV2 extends BaseFragment implements NotificationCente
         nameTextView[1].setScaleX(nameTextScale);
         nameTextView[1].setScaleY(nameTextScale);
         onlineTextView[1].setTranslationX(AndroidUtilities.lerp(onlineX, AndroidUtilities.dp(16f), actualProgress));
+
+        if (giftsView != null) {
+            giftsView.setExpandProgress(actualProgress);
+        }
 
         avatarImage.requestLayout();
     }
@@ -1565,9 +1581,31 @@ public class ProfileActivityV2 extends BaseFragment implements NotificationCente
 
     private void initListView(Context context) {
         listView = new RecyclerListView(context) {
+
+            private VelocityTracker velocityTracker;
+
             @Override
             public boolean onTouchEvent(MotionEvent e) {
                 final int action = e.getAction();
+                if (action == MotionEvent.ACTION_DOWN) {
+                    if (velocityTracker == null) {
+                        velocityTracker = VelocityTracker.obtain();
+                    } else {
+                        velocityTracker.clear();
+                    }
+                    velocityTracker.addMovement(e);
+                } else if (action == MotionEvent.ACTION_MOVE) {
+                    if (velocityTracker != null) {
+                        velocityTracker.addMovement(e);
+                        velocityTracker.computeCurrentVelocity(1000);
+                        listViewVelocityY = velocityTracker.getYVelocity(e.getPointerId(e.getActionIndex()));
+                    }
+                } else if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
+                    if (velocityTracker != null) {
+                        velocityTracker.recycle();
+                        velocityTracker = null;
+                    }
+                }
                 final boolean result = super.onTouchEvent(e);
                 if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
                     final View view = layoutManager.findViewByPosition(0);
@@ -1851,7 +1889,7 @@ public class ProfileActivityV2 extends BaseFragment implements NotificationCente
                     backgroundGradient = new LinearGradient(0, 0, 0, backgroundGradientHeight = gradientHeight, new int[] { backgroundGradientColor2 = color2, backgroundGradientColor1 = color1 }, new float[] { 0, 1 }, Shader.TileMode.CLAMP);
                     backgroundPaint.setShader(backgroundGradient);
                 }
-                final float progressToGradient = (playProfileAnimation == 0 ? 1f : avatarAnimationProgress) * hasColorAnimated.set(hasColorById);
+                final float progressToGradient = (playProfileAnimation == 0 ? 1f : listFromStartToMiddleProgress) * hasColorAnimated.set(hasColorById);
                 if (progressToGradient < 1) {
                     canvas.drawRect(0, 0, getMeasuredWidth(), y1, paint);
                 }
@@ -1875,7 +1913,7 @@ public class ProfileActivityV2 extends BaseFragment implements NotificationCente
                     if (actionBar != null && menu != null) {
                         int restoreCount = canvas.save();
                         canvas.translate(actionBar.getX() + menu.getX(), actionBar.getY() + menu.getY());
-                        canvas.saveLayerAlpha(0, 0, menu.getMeasuredWidth(), menu.getMeasuredHeight(), (int) (255 * (1f - avatarAnimationProgress)), Canvas.ALL_SAVE_FLAG);
+                        canvas.saveLayerAlpha(0, 0, menu.getMeasuredWidth(), menu.getMeasuredHeight(), (int) (255 * (1f - listFromStartToMiddleProgress)), Canvas.ALL_SAVE_FLAG);
                         menu.draw(canvas);
                         canvas.restoreToCount(restoreCount);
                     }
@@ -2293,6 +2331,319 @@ public class ProfileActivityV2 extends BaseFragment implements NotificationCente
             ));
 
             return container;
+        }
+    }
+
+    private class OverlaysView extends View implements ProfileGalleryViewV2.Callback {
+
+        private final int statusBarHeight = actionBar.getOccupyStatusBar() && !inBubbleMode ? AndroidUtilities.statusBarHeight : 0;
+
+        private final Rect topOverlayRect = new Rect();
+        private final Rect bottomOverlayRect = new Rect();
+        private final RectF rect = new RectF();
+
+        private final GradientDrawable topOverlayGradient;
+        private final GradientDrawable bottomOverlayGradient;
+        private final ValueAnimator animator;
+        private final float[] animatorValues = new float[]{0f, 1f};
+        private final Paint backgroundPaint;
+        private final Paint barPaint;
+        private final Paint selectedBarPaint;
+
+        private final GradientDrawable[] pressedOverlayGradient = new GradientDrawable[2];
+        private final boolean[] pressedOverlayVisible = new boolean[2];
+        private final float[] pressedOverlayAlpha = new float[2];
+
+        private boolean isOverlaysVisible;
+        private float currentAnimationValue;
+        private float alpha = 0f;
+        private float[] alphas = null;
+        private long lastTime;
+        private float previousSelectedProgress;
+        private int previousSelectedPotision = -1;
+        private float currentProgress;
+        private int selectedPosition;
+
+        private float currentLoadingAnimationProgress;
+        private int currentLoadingAnimationDirection = 1;
+
+        public OverlaysView(Context context) {
+            super(context);
+            setVisibility(GONE);
+
+            barPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+            barPaint.setColor(0x55ffffff);
+            selectedBarPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+            selectedBarPaint.setColor(0xffffffff);
+
+            topOverlayGradient = new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, new int[]{0x42000000, 0});
+            topOverlayGradient.setShape(GradientDrawable.RECTANGLE);
+
+            bottomOverlayGradient = new GradientDrawable(GradientDrawable.Orientation.BOTTOM_TOP, new int[]{0x42000000, 0});
+            bottomOverlayGradient.setShape(GradientDrawable.RECTANGLE);
+
+            for (int i = 0; i < 2; i++) {
+                final GradientDrawable.Orientation orientation = i == 0 ? GradientDrawable.Orientation.LEFT_RIGHT : GradientDrawable.Orientation.RIGHT_LEFT;
+                pressedOverlayGradient[i] = new GradientDrawable(orientation, new int[]{0x32000000, 0});
+                pressedOverlayGradient[i].setShape(GradientDrawable.RECTANGLE);
+            }
+
+            backgroundPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+            backgroundPaint.setColor(Color.BLACK);
+            backgroundPaint.setAlpha(66);
+            animator = ValueAnimator.ofFloat(0f, 1f);
+            animator.setDuration(250);
+            animator.setInterpolator(CubicBezierInterpolator.EASE_BOTH);
+            animator.addUpdateListener(anim -> {
+                float value = AndroidUtilities.lerp(animatorValues, currentAnimationValue = anim.getAnimatedFraction());
+                setAlphaValue(value, true);
+            });
+            animator.addListener(new AnimatorListenerAdapter() {
+                @Override
+                public void onAnimationEnd(Animator animation) {
+                    if (!isOverlaysVisible) {
+                        setVisibility(GONE);
+                    }
+                }
+
+                @Override
+                public void onAnimationStart(Animator animation) {
+                    setVisibility(VISIBLE);
+                }
+            });
+        }
+
+        public void saveCurrentPageProgress() {
+            previousSelectedProgress = currentProgress;
+            previousSelectedPotision = selectedPosition;
+            currentLoadingAnimationProgress = 0.0f;
+            currentLoadingAnimationDirection = 1;
+        }
+
+        public void setAlphaValue(float value, boolean self) {
+            if (Build.VERSION.SDK_INT > 18) {
+                int alpha = (int) (255 * value);
+                topOverlayGradient.setAlpha(alpha);
+                bottomOverlayGradient.setAlpha(alpha);
+                backgroundPaint.setAlpha((int) (66 * value));
+                barPaint.setAlpha((int) (0x55 * value));
+                selectedBarPaint.setAlpha(alpha);
+                this.alpha = value;
+            } else {
+                setAlpha(value);
+            }
+            if (!self) {
+                currentAnimationValue = value;
+            }
+            invalidate();
+        }
+
+        public boolean isOverlaysVisible() {
+            return isOverlaysVisible;
+        }
+
+        public void setOverlaysVisible() {
+            isOverlaysVisible = true;
+            setVisibility(VISIBLE);
+        }
+
+        public void setOverlaysVisible(boolean overlaysVisible, float durationFactor) {
+            if (overlaysVisible != isOverlaysVisible) {
+                isOverlaysVisible = overlaysVisible;
+                animator.cancel();
+                final float value = AndroidUtilities.lerp(animatorValues, currentAnimationValue);
+                if (overlaysVisible) {
+                    animator.setDuration((long) ((1f - value) * 250f / durationFactor));
+                } else {
+                    animator.setDuration((long) (value * 250f / durationFactor));
+                }
+                animatorValues[0] = value;
+                animatorValues[1] = overlaysVisible ? 1f : 0f;
+                animator.start();
+            }
+        }
+
+        @Override
+        protected void onSizeChanged(int w, int h, int oldw, int oldh) {
+            final int actionBarHeight = statusBarHeight + ActionBar.getCurrentActionBarHeight();
+            final float k = 0.5f;
+            topOverlayRect.set(0, 0, w, (int) (actionBarHeight * k));
+            bottomOverlayRect.set(0, (int) (h - AndroidUtilities.dp(72f) * k), w, h);
+            topOverlayGradient.setBounds(0, topOverlayRect.bottom, w, actionBarHeight + AndroidUtilities.dp(16f));
+            bottomOverlayGradient.setBounds(0, h - AndroidUtilities.dp(72f) - AndroidUtilities.dp(24f), w, bottomOverlayRect.top);
+            pressedOverlayGradient[0].setBounds(0, 0, w / 5, h);
+            pressedOverlayGradient[1].setBounds(w - (w / 5), 0, w, h);
+        }
+
+        @Override
+        protected void onDraw(Canvas canvas) {
+            for (int i = 0; i < 2; i++) {
+                if (pressedOverlayAlpha[i] > 0f) {
+                    pressedOverlayGradient[i].setAlpha((int) (pressedOverlayAlpha[i] * 255));
+                    pressedOverlayGradient[i].draw(canvas);
+                }
+            }
+
+            topOverlayGradient.draw(canvas);
+            bottomOverlayGradient.draw(canvas);
+            canvas.drawRect(topOverlayRect, backgroundPaint);
+            canvas.drawRect(bottomOverlayRect, backgroundPaint);
+
+            int count = avatarsViewPager.getRealCount();
+            selectedPosition = avatarsViewPager.getRealPosition();
+
+            if (alphas == null || alphas.length != count) {
+                alphas = new float[count];
+                Arrays.fill(alphas, 0.0f);
+            }
+
+            boolean invalidate = false;
+
+            long newTime = SystemClock.elapsedRealtime();
+            long dt = (newTime - lastTime);
+            if (dt < 0 || dt > 20) {
+                dt = 17;
+            }
+            lastTime = newTime;
+
+            if (count > 1 && count <= 20) {
+                if (overlayCountVisible == 0) {
+                    alpha = 0.0f;
+                    overlayCountVisible = 3;
+                } else if (overlayCountVisible == 1) {
+                    alpha = 0.0f;
+                    overlayCountVisible = 2;
+                }
+                if (overlayCountVisible == 2) {
+                    barPaint.setAlpha((int) (0x55 * alpha));
+                    selectedBarPaint.setAlpha((int) (0xff * alpha));
+                }
+                int width = (getMeasuredWidth() - AndroidUtilities.dp(5 * 2) - AndroidUtilities.dp(2 * (count - 1))) / count;
+                int y = AndroidUtilities.dp(4) + (Build.VERSION.SDK_INT >= 21 && !inBubbleMode ? AndroidUtilities.statusBarHeight : 0);
+                for (int a = 0; a < count; a++) {
+                    int x = AndroidUtilities.dp(5 + a * 2) + width * a;
+                    float progress;
+                    int baseAlpha = 0x55;
+                    if (a == previousSelectedPotision && Math.abs(previousSelectedProgress - 1.0f) > 0.0001f) {
+                        progress = previousSelectedProgress;
+                        canvas.save();
+                        canvas.clipRect(x + width * progress, y, x + width, y + AndroidUtilities.dp(2));
+                        rect.set(x, y, x + width, y + AndroidUtilities.dp(2));
+                        barPaint.setAlpha((int) (0x55 * alpha));
+                        canvas.drawRoundRect(rect, AndroidUtilities.dp(1), AndroidUtilities.dp(1), barPaint);
+                        baseAlpha = 0x50;
+                        canvas.restore();
+                        invalidate = true;
+                    } else if (a == selectedPosition) {
+                        if (avatarsViewPager.isCurrentItemVideo()) {
+                            progress = currentProgress = avatarsViewPager.getCurrentItemProgress();
+                            if (progress <= 0 && avatarsViewPager.isLoadingCurrentVideo() || currentLoadingAnimationProgress > 0.0f) {
+                                currentLoadingAnimationProgress += currentLoadingAnimationDirection * dt / 500.0f;
+                                if (currentLoadingAnimationProgress > 1.0f) {
+                                    currentLoadingAnimationProgress = 1.0f;
+                                    currentLoadingAnimationDirection *= -1;
+                                } else if (currentLoadingAnimationProgress <= 0) {
+                                    currentLoadingAnimationProgress = 0.0f;
+                                    currentLoadingAnimationDirection *= -1;
+                                }
+                            }
+                            rect.set(x, y, x + width, y + AndroidUtilities.dp(2));
+                            barPaint.setAlpha((int) ((0x55 + 0x30 * currentLoadingAnimationProgress) * alpha));
+                            canvas.drawRoundRect(rect, AndroidUtilities.dp(1), AndroidUtilities.dp(1), barPaint);
+                            invalidate = true;
+                            baseAlpha = 0x50;
+                        } else {
+                            progress = currentProgress = 1.0f;
+                        }
+                    } else {
+                        progress = 1.0f;
+                    }
+                    rect.set(x, y, x + width * progress, y + AndroidUtilities.dp(2));
+
+                    if (a != selectedPosition) {
+                        if (overlayCountVisible == 3) {
+                            barPaint.setAlpha((int) (AndroidUtilities.lerp(baseAlpha, 0xff, CubicBezierInterpolator.EASE_BOTH.getInterpolation(alphas[a])) * alpha));
+                        }
+                    } else {
+                        alphas[a] = 0.75f;
+                    }
+
+                    canvas.drawRoundRect(rect, AndroidUtilities.dp(1), AndroidUtilities.dp(1), a == selectedPosition ? selectedBarPaint : barPaint);
+                }
+
+                if (overlayCountVisible == 2) {
+                    if (alpha < 1.0f) {
+                        alpha += dt / 180.0f;
+                        if (alpha > 1.0f) {
+                            alpha = 1.0f;
+                        }
+                        invalidate = true;
+                    } else {
+                        overlayCountVisible = 3;
+                    }
+                } else if (overlayCountVisible == 3) {
+                    for (int i = 0; i < alphas.length; i++) {
+                        if (i != selectedPosition && alphas[i] > 0.0f) {
+                            alphas[i] -= dt / 500.0f;
+                            if (alphas[i] <= 0.0f) {
+                                alphas[i] = 0.0f;
+                                if (i == previousSelectedPotision) {
+                                    previousSelectedPotision = -1;
+                                }
+                            }
+                            invalidate = true;
+                        } else if (i == previousSelectedPotision) {
+                            previousSelectedPotision = -1;
+                        }
+                    }
+                }
+            }
+
+            for (int i = 0; i < 2; i++) {
+                if (pressedOverlayVisible[i]) {
+                    if (pressedOverlayAlpha[i] < 1f) {
+                        pressedOverlayAlpha[i] += dt / 180.0f;
+                        if (pressedOverlayAlpha[i] > 1f) {
+                            pressedOverlayAlpha[i] = 1f;
+                        }
+                        invalidate = true;
+                    }
+                } else {
+                    if (pressedOverlayAlpha[i] > 0f) {
+                        pressedOverlayAlpha[i] -= dt / 180.0f;
+                        if (pressedOverlayAlpha[i] < 0f) {
+                            pressedOverlayAlpha[i] = 0f;
+                        }
+                        invalidate = true;
+                    }
+                }
+            }
+
+            if (invalidate) {
+                postInvalidateOnAnimation();
+            }
+        }
+
+        @Override
+        public void onDown(boolean left) {
+            pressedOverlayVisible[left ? 0 : 1] = true;
+            postInvalidateOnAnimation();
+        }
+
+        @Override
+        public void onRelease() {
+            Arrays.fill(pressedOverlayVisible, false);
+            postInvalidateOnAnimation();
+        }
+
+        @Override
+        public void onPhotosLoaded() {
+            updateProfileData();
+        }
+
+        @Override
+        public void onVideoSet() {
+            invalidate();
         }
     }
 
