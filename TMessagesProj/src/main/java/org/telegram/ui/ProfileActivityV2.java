@@ -330,14 +330,16 @@ public class ProfileActivityV2 extends BaseFragment implements NotificationCente
                 actionsContainer.setScaleY(actionsProgress);
                 actionsContainer.setAlpha(actionsProgress);
 
-                final float contentAnimationProgress = Math.max(0f, listOffset - actionsContainer.getMeasuredHeight()) / (middleStateProfileExtraHeight - actionsContainer.getMeasuredHeight());
+                final float contentAnimationProgress = Math.min(1f, Math.max(0f, listOffset - actionsContainer.getMeasuredHeight()) / (middleStateProfileExtraHeight - actionsContainer.getMeasuredHeight()));
                 //Log.e("STAS", "contentAnimationProgress = " + contentAnimationProgress);
+                float onlineWidth = onlineTextView[1].getPaint().measureText(onlineTextView[1].getText().toString());
+                float onlineStartX = topContentView.getMeasuredWidth() / 2f - onlineWidth / 2f;
+                onlineX = (int) (AndroidUtilities.lerp(AndroidUtilities.dp(64f), onlineStartX, contentAnimationProgress));
+                Log.e("STAS", "onlineX = " + onlineX);
                 if (onlineTextView[1] != null) {
-                    int onlineWidth = onlineTextView[1].getMeasuredWidth();
-                    int onlineStartX = topBackgroundView.getMeasuredWidth() / 2 - onlineWidth / 2;
                     if (!expandAnimationRunning && !expanded) {
-                        if (avatarAnimationProgress < 1f) {
-                            onlineX = (int) (AndroidUtilities.lerp(AndroidUtilities.dpf2(64f), onlineStartX, contentAnimationProgress));
+                        if (contentAnimationProgress < 1f) {
+                            Log.e("STAS", "set onlineX" );
                             onlineTextView[1].setTranslationX(onlineX);
                         }
                     }
@@ -348,17 +350,17 @@ public class ProfileActivityV2 extends BaseFragment implements NotificationCente
 
                 // TODO for loop, proper center, proper place in header
                 float nameWidth = nameTextView[1].getPaint().measureText(nameTextView[1].getText().toString());
+                float nameStartX = topContentView.getMeasuredWidth() / 2f - nameWidth / 2;
+                nameX = (int) (AndroidUtilities.lerp(AndroidUtilities.dp(64f), nameStartX, contentAnimationProgress));
                 if (nameTextView[1] != null) {
-                    float nameStartX = topContentView.getMeasuredWidth() / 2 - nameWidth / 2;
                     if (!expandAnimationRunning && !expanded) {
-                        if (avatarAnimationProgress < 1f) {
-                            nameX = (int) (AndroidUtilities.lerp(AndroidUtilities.dp(64f), nameStartX, contentAnimationProgress));
+                        if (contentAnimationProgress < 1f) {
                             nameTextView[1].setTranslationX(nameX);
                         }
                     }
                     nameY = onlineY - nameTextView[1].getMeasuredHeight();
                     nameTextView[1].setTranslationY(nameY);
-                    nameTextView[1].setPivotY(nameTextView[1].getMeasuredHeight() * nameTextScale);
+                    nameTextView[1].setPivotY(nameTextView[1].getMeasuredHeight());
                 }
 
                 float avatarScale = AndroidUtilities.lerp(1f, maxAvatarScale, Math.min(1f, avatarAnimationProgress));
