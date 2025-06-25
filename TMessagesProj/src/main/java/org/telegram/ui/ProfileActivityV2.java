@@ -8,6 +8,7 @@ import android.animation.Animator;
 import android.animation.AnimatorListenerAdapter;
 import android.animation.ValueAnimator;
 import android.content.Context;
+import android.database.DataSetObserver;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.LinearGradient;
@@ -17,6 +18,7 @@ import android.graphics.PorterDuffColorFilter;
 import android.graphics.Rect;
 import android.graphics.RectF;
 import android.graphics.Shader;
+import android.graphics.Typeface;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
 import android.graphics.drawable.StateListDrawable;
@@ -26,6 +28,7 @@ import android.os.SystemClock;
 import android.text.SpannableString;
 import android.text.SpannableStringBuilder;
 import android.text.Spanned;
+import android.text.TextPaint;
 import android.util.Log;
 import android.util.Property;
 import android.util.SparseIntArray;
@@ -46,6 +49,8 @@ import androidx.core.content.ContextCompat;
 import androidx.core.graphics.ColorUtils;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
+import androidx.viewpager.widget.PagerAdapter;
+import androidx.viewpager.widget.ViewPager;
 
 import org.telegram.PhoneFormat.PhoneFormat;
 import org.telegram.messenger.AndroidUtilities;
@@ -106,6 +111,7 @@ import org.telegram.ui.Components.LayoutHelper;
 import org.telegram.ui.Components.LinkSpanDrawable;
 import org.telegram.ui.Components.MessagePrivateSeenView;
 import org.telegram.ui.Components.Premium.PremiumPreviewBottomSheet;
+import org.telegram.ui.Components.ProfileGalleryView;
 import org.telegram.ui.Components.ProfileGalleryViewV2;
 import org.telegram.ui.Components.RecyclerListView;
 import org.telegram.ui.Components.ScamDrawable;
@@ -129,7 +135,7 @@ public class ProfileActivityV2 extends BaseFragment implements NotificationCente
     private SizeNotifierFrameLayout contentView;
 
     private TopView topView; /** View fully copied */
-    private OverlaysView overlaysView;
+    private OverlaysView overlaysView; /** View fully copied */
     private int overlayCountVisible;
     private float listViewVelocityY;
     private int searchTransitionOffset;
@@ -175,8 +181,14 @@ public class ProfileActivityV2 extends BaseFragment implements NotificationCente
 
     private float onlineX;
     private float onlineY;
+
+    private boolean editItemVisible;
+    private ActionBarMenuItem searchItem;
+    private ActionBarMenuItem editItem;
     private ActionBarMenuItem otherItem;
     private final static int start_secret_chat = 20;
+    private final static int set_as_main = 33;
+    private final static int add_photo = 36;
     private final static int gift_premium = 38;
     private final static int bot_privacy = 44;
     private Theme.ResourcesProvider resourcesProvider;
@@ -498,7 +510,7 @@ public class ProfileActivityV2 extends BaseFragment implements NotificationCente
         initNameTextView(context);
         initOnlineTextView(context);
 
-        updateProfileData();
+        updateProfileData(true);
         initActions(context);
         topContentView.addView(actionsContainer);
         frameLayout.addView(actionBar);
@@ -683,7 +695,7 @@ public class ProfileActivityV2 extends BaseFragment implements NotificationCente
         avatarImage.requestLayout();
     }
 
-    private void updateProfileData() {
+    private void updateProfileData(boolean reload) {
         String onlineTextOverride;
         int currentConnectionState = getConnectionsManager().getConnectionState();
         if (currentConnectionState == ConnectionsManager.ConnectionStateWaitingForNetwork) {
@@ -2506,6 +2518,40 @@ public class ProfileActivityV2 extends BaseFragment implements NotificationCente
         return getMessagesController().getStoriesController().hasStories(getDialogId()) && !isTopic;
     }
 
+    private void updateStoriesViewBounds(boolean animated) {
+        //if (storyView == null && giftsView == null || actionBar == null) {
+        //    return;
+        //}
+        if (giftsView == null || actionBar == null) {
+            return;
+        }
+        float atop = actionBar.getOccupyStatusBar() ? AndroidUtilities.statusBarHeight : 0;
+        float aleft = 0;
+        float aright = actionBar.getWidth();
+
+        if (actionBar.getBackButton() != null) {
+            aleft = Math.max(aleft, actionBar.getBackButton().getRight());
+        }
+        if (actionBar.menu != null) {
+            for (int i = 0; i < actionBar.menu.getChildCount(); ++i) {
+                View child = actionBar.menu.getChildAt(i);
+                if (child.getAlpha() <= 0 || child.getVisibility() != View.VISIBLE) {
+                    continue;
+                }
+                int left = actionBar.menu.getLeft() + (int) child.getX();
+                if (left < aright) {
+                    aright = AndroidUtilities.lerp(aright, left, child.getAlpha());
+                }
+            }
+        }
+        //if (storyView != null) {
+        //    storyView.setBounds(aleft, aright, atop + (actionBar.getHeight() - atop) / 2f, !animated);
+        //}
+        if (giftsView != null) {
+            giftsView.setBounds(aleft, aright, atop + (actionBar.getHeight() - atop) / 2f, !animated);
+        }
+    }
+
     private class ListAdapter extends RecyclerListView.SelectionAdapter {
 
         private Context mContext;
@@ -2959,12 +3005,217 @@ public class ProfileActivityV2 extends BaseFragment implements NotificationCente
 
         @Override
         public void onPhotosLoaded() {
-            updateProfileData();
+            updateProfileData(false);
         }
 
         @Override
         public void onVideoSet() {
             invalidate();
+        }
+    }
+
+    private class PagerIndicatorView extends View {
+
+        private final RectF indicatorRect = new RectF();
+
+        private final TextPaint textPaint;
+        private final Paint backgroundPaint;
+
+        private final ValueAnimator animator;
+        private final float[] animatorValues = new float[]{0f, 1f};
+
+        private final PagerAdapter adapter = avatarsViewPager.getAdapter();
+
+        private boolean isIndicatorVisible;
+
+        public PagerIndicatorView(Context context) {
+            super(context);
+            setVisibility(GONE);
+
+            textPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+            textPaint.setColor(Color.WHITE);
+            textPaint.setTypeface(Typeface.SANS_SERIF);
+            textPaint.setTextAlign(Paint.Align.CENTER);
+            textPaint.setTextSize(AndroidUtilities.dpf2(15f));
+            backgroundPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+            backgroundPaint.setColor(0x26000000);
+            animator = ValueAnimator.ofFloat(0f, 1f);
+            animator.setInterpolator(CubicBezierInterpolator.EASE_BOTH);
+            animator.addUpdateListener(a -> {
+                final float value = AndroidUtilities.lerp(animatorValues, a.getAnimatedFraction());
+                if (searchItem != null && !isPulledDown) {
+                    searchItem.setScaleX(1f - value);
+                    searchItem.setScaleY(1f - value);
+                    searchItem.setAlpha(1f - value);
+                }
+                if (editItemVisible) {
+                    editItem.setScaleX(1f - value);
+                    editItem.setScaleY(1f - value);
+                    editItem.setAlpha(1f - value);
+                }
+                setScaleX(value);
+                setScaleY(value);
+                setAlpha(value);
+            });
+            boolean expanded = expandPhoto;
+            animator.addListener(new AnimatorListenerAdapter() {
+                @Override
+                public void onAnimationEnd(Animator animation) {
+                    if (isIndicatorVisible) {
+                        if (searchItem != null) {
+                            searchItem.setClickable(false);
+                        }
+                        if (editItemVisible) {
+                            editItem.setVisibility(GONE);
+                        }
+                    } else {
+                        setVisibility(GONE);
+                    }
+                    updateStoriesViewBounds(false);
+                }
+
+                @Override
+                public void onAnimationStart(Animator animation) {
+                    if (searchItem != null && !expanded) {
+                        searchItem.setClickable(true);
+                    }
+                    if (editItemVisible) {
+                        editItem.setVisibility(VISIBLE);
+                    }
+                    setVisibility(VISIBLE);
+                    updateStoriesViewBounds(false);
+                }
+            });
+            avatarsViewPager.addOnPageChangeListener(new ViewPager.OnPageChangeListener() {
+
+                private int prevPage;
+
+                @Override
+                public void onPageScrolled(int position, float positionOffset, int positionOffsetPixels) {
+                }
+
+                @Override
+                public void onPageSelected(int position) {
+                    int realPosition = avatarsViewPager.getRealPosition(position);
+                    invalidateIndicatorRect(prevPage != realPosition);
+                    prevPage = realPosition;
+                    updateAvatarItems();
+                }
+
+                @Override
+                public void onPageScrollStateChanged(int state) {
+                }
+            });
+            adapter.registerDataSetObserver(new DataSetObserver() {
+                @Override
+                public void onChanged() {
+                    int count = avatarsViewPager.getRealCount();
+                    if (overlayCountVisible == 0 && count > 1 && count <= 20 && overlaysView.isOverlaysVisible()) {
+                        overlayCountVisible = 1;
+                    }
+                    invalidateIndicatorRect(false);
+                    refreshVisibility(1f);
+                    updateAvatarItems();
+                }
+            });
+        }
+
+        private void updateAvatarItemsInternal() {
+            if (otherItem == null || avatarsViewPager == null) {
+                return;
+            }
+            if (isPulledDown) {
+                int position = avatarsViewPager.getRealPosition();
+                if (position == 0) {
+                    otherItem.hideSubItem(set_as_main);
+                    otherItem.showSubItem(add_photo);
+                } else {
+                    otherItem.showSubItem(set_as_main);
+                    otherItem.hideSubItem(add_photo);
+                }
+            }
+        }
+
+        private void updateAvatarItems() {
+            if (imageUpdater == null) {
+                return;
+            }
+            if (otherItem.isSubMenuShowing()) {
+                AndroidUtilities.runOnUIThread(this::updateAvatarItemsInternal, 500);
+            } else {
+                updateAvatarItemsInternal();
+            }
+        }
+
+        public boolean isIndicatorVisible() {
+            return isIndicatorVisible;
+        }
+
+        public boolean isIndicatorFullyVisible() {
+            return isIndicatorVisible && !animator.isRunning();
+        }
+
+        public void setIndicatorVisible(boolean indicatorVisible, float durationFactor) {
+            if (indicatorVisible != isIndicatorVisible) {
+                isIndicatorVisible = indicatorVisible;
+                animator.cancel();
+                final float value = AndroidUtilities.lerp(animatorValues, animator.getAnimatedFraction());
+                if (durationFactor <= 0f) {
+                    animator.setDuration(0);
+                } else if (indicatorVisible) {
+                    animator.setDuration((long) ((1f - value) * 250f / durationFactor));
+                } else {
+                    animator.setDuration((long) (value * 250f / durationFactor));
+                }
+                animatorValues[0] = value;
+                animatorValues[1] = indicatorVisible ? 1f : 0f;
+                animator.start();
+            }
+        }
+
+        public void refreshVisibility(float durationFactor) {
+            setIndicatorVisible(isPulledDown && avatarsViewPager.getRealCount() > 20, durationFactor);
+        }
+
+        @Override
+        protected void onSizeChanged(int w, int h, int oldw, int oldh) {
+            invalidateIndicatorRect(false);
+        }
+
+        private void invalidateIndicatorRect(boolean pageChanged) {
+            if (pageChanged) {
+                overlaysView.saveCurrentPageProgress();
+            }
+            overlaysView.invalidate();
+            final float textWidth = textPaint.measureText(getCurrentTitle());
+            indicatorRect.right = getMeasuredWidth() - AndroidUtilities.dp(54f);
+            indicatorRect.left = indicatorRect.right - (textWidth + AndroidUtilities.dpf2(16f));
+            indicatorRect.top = (actionBar.getOccupyStatusBar() ? AndroidUtilities.statusBarHeight : 0) + AndroidUtilities.dp(15f);
+            indicatorRect.bottom = indicatorRect.top + AndroidUtilities.dp(26);
+            setPivotX(indicatorRect.centerX());
+            setPivotY(indicatorRect.centerY());
+            invalidate();
+        }
+
+        @Override
+        protected void onDraw(Canvas canvas) {
+            final float radius = AndroidUtilities.dpf2(12);
+            canvas.drawRoundRect(indicatorRect, radius, radius, backgroundPaint);
+            canvas.drawText(getCurrentTitle(), indicatorRect.centerX(), indicatorRect.top + AndroidUtilities.dpf2(18.5f), textPaint);
+        }
+
+        private String getCurrentTitle() {
+            return adapter.getPageTitle(avatarsViewPager.getCurrentItem()).toString();
+        }
+
+        private ActionBarMenuItem getSecondaryMenuItem() {
+            if (editItemVisible) {
+                return editItem;
+            } else if (searchItem != null) {
+                return searchItem;
+            } else {
+                return null;
+            }
         }
     }
 
