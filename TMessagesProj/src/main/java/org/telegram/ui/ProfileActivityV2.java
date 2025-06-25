@@ -161,6 +161,9 @@ public class ProfileActivityV2 extends BaseFragment implements NotificationCente
     private float currentExpandAnimatorFracture;
     private float currentExpandAnimatorValue;
     private float[] expandAnimatorValues = new float[]{0f, 1f};
+    private boolean allowPullingDown;
+    private boolean openingAvatar;
+    private boolean isInLandscapeMode;
     private boolean isPulledDown;
     private ValueAnimator expandAnimator;
 
@@ -1701,7 +1704,37 @@ public class ProfileActivityV2 extends BaseFragment implements NotificationCente
                 return result;
             }
         };
-        layoutManager = new LinearLayoutManager(context);
+        layoutManager = new LinearLayoutManager(context) {
+
+            @Override
+            public boolean supportsPredictiveItemAnimations() {
+                return imageUpdater != null;
+            }
+
+            @Override
+            public int scrollVerticallyBy(int dy, RecyclerView.Recycler recycler, RecyclerView.State state) {
+                final View view = layoutManager.findViewByPosition(0);
+                if (view != null && !openingAvatar) {
+                    final int canScroll = view.getTop() - maxExtraHeight;
+                    if (!allowPullingDown && canScroll > dy) {
+                        dy = canScroll;
+                        if (avatarsViewPager.hasImages() && avatarImage.getImageReceiver().hasNotThumb() && !AndroidUtilities.isAccessibilityScreenReaderEnabled() && !isInLandscapeMode && !AndroidUtilities.isTablet()) {
+                            allowPullingDown = avatarBig == null;
+                        }
+                    } else if (allowPullingDown) {
+                        if (dy >= canScroll) {
+                            dy = canScroll;
+                            allowPullingDown = false;
+                        } else if (listView.getScrollState() == RecyclerListView.SCROLL_STATE_DRAGGING) {
+                            if (!isPulledDown) {
+                                dy /= 2;
+                            }
+                        }
+                    }
+                }
+                return super.scrollVerticallyBy(dy, recycler, state);
+            }
+        };
         listView.setLayoutManager(layoutManager);
         listAdapter = new ListAdapter(context);
         listView.setAdapter(listAdapter);
