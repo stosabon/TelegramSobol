@@ -128,7 +128,7 @@ public class ProfileActivityV2 extends BaseFragment implements NotificationCente
 
     private SizeNotifierFrameLayout contentView;
 
-    private TopView topBackgroundView;
+    private TopView topView; /** View fully copied */
     private OverlaysView overlaysView;
     private int overlayCountVisible;
     private float listViewVelocityY;
@@ -139,7 +139,7 @@ public class ProfileActivityV2 extends BaseFragment implements NotificationCente
 
     private FrameLayout topContentView;
     public ProfileGiftsViewV2 giftsView;
-    private AvatarImageView avatarImage;
+    private AvatarImageView avatarImage; /** View fully copied */
     private float avatarX;
     private float avatarY;
     private float expectedAvatarY;
@@ -307,7 +307,7 @@ public class ProfileActivityV2 extends BaseFragment implements NotificationCente
                 listFromStartToMiddleProgress = (float) listOffset / middleStateProfileExtraHeight;
                 final int actionBarHeight = ActionBar.getCurrentActionBarHeight() + (actionBar.getOccupyStatusBar() ? AndroidUtilities.statusBarHeight : 0);
                 int newProfileContainerHeight = (int) (middleStateProfileExtraHeight * listFromStartToMiddleProgress);
-                topBackgroundView.measure(View.MeasureSpec.makeMeasureSpec(fragmentView.getMeasuredWidth(), MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(actionBarHeight + newProfileContainerHeight, MeasureSpec.EXACTLY));
+                topView.measure(View.MeasureSpec.makeMeasureSpec(fragmentView.getMeasuredWidth(), MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(actionBarHeight + newProfileContainerHeight, MeasureSpec.EXACTLY));
 
                 if (!expanded && ! expandAnimationRunning) {
                     avatarImage.measure(
@@ -354,14 +354,14 @@ public class ProfileActivityV2 extends BaseFragment implements NotificationCente
 
                 int newProfileContainerHeight = (int) (middleStateProfileExtraHeight * listFromStartToMiddleProgress);
                 int topBackgroundHeight = actionBarHeight + newProfileContainerHeight;
-                topBackgroundView.layout(0, 0, topBackgroundView.getMeasuredWidth(), topBackgroundHeight);
+                topView.layout(0, 0, topView.getMeasuredWidth(), topBackgroundHeight);
 
                 float actionsTop = Math.max(actionBarHeight, topBackgroundHeight - AndroidUtilities.dp(16f) - actionsContainer.getMeasuredHeight());
                 float actionsHeight = Math.min(listOffset, actionsContainer.getMeasuredHeight());
                 actionsContainer.layout(
                         AndroidUtilities.dp(16f),
                         (int) actionsTop,
-                        topBackgroundView.getMeasuredWidth() - AndroidUtilities.dp(16f),
+                        topView.getMeasuredWidth() - AndroidUtilities.dp(16f),
                         (int) (actionsTop + actionsHeight)
                 );
                 float actionsProgress = Math.min(1f, actionsHeight / actionsContainer.getMeasuredHeight());
@@ -408,7 +408,7 @@ public class ProfileActivityV2 extends BaseFragment implements NotificationCente
                 if (!expanded && !expandAnimationRunning) {
                     avatarImage.setScaleX(avatarScale);
                     avatarImage.setScaleY(avatarScale);
-                    avatarX = topBackgroundView.getMeasuredWidth() / 2 - avatarImage.getMeasuredWidth() / 2 * avatarScale;
+                    avatarX = topView.getMeasuredWidth() / 2 - avatarImage.getMeasuredWidth() / 2 * avatarScale;
                     if (contentAnimationProgress <= 0) {
                         avatarY = expectedAvatarY;
                     } else {
@@ -423,7 +423,7 @@ public class ProfileActivityV2 extends BaseFragment implements NotificationCente
                 listView.setPadding(0, listView.getMeasuredWidth(),0,0);
                 if (giftsView != null && !expanded && !expandAnimationRunning) {
                     giftsView.setExpandCoords(
-                            topBackgroundView.getMeasuredWidth() - AndroidUtilities.dp(40),
+                            topView.getMeasuredWidth() - AndroidUtilities.dp(40),
                             false,
                             (actionBar.getOccupyStatusBar() ? AndroidUtilities.statusBarHeight : 0) + ActionBar.getCurrentActionBarHeight() + middleStateProfileExtraHeight
                     );
@@ -472,9 +472,11 @@ public class ProfileActivityV2 extends BaseFragment implements NotificationCente
         contentView = (SizeNotifierFrameLayout) fragmentView;
         FrameLayout frameLayout = (FrameLayout) fragmentView;
 
-        topBackgroundView = new TopView(context);
-        topBackgroundView.setBackgroundColor(getThemedColor(Theme.key_avatar_backgroundActionBarBlue));
-        frameLayout.addView(topBackgroundView);
+        topView = new TopView(context);
+        topView.setBackgroundColorId(peerColor, false);
+        topView.setBackgroundColor(getThemedColor(Theme.key_avatar_backgroundActionBarBlue));
+        frameLayout.addView(topView);
+        contentView.blurBehindViews.add(topView);
 
         topContentView = new FrameLayout(context);
         initMenu();
@@ -490,7 +492,7 @@ public class ProfileActivityV2 extends BaseFragment implements NotificationCente
         topContentView.addView(overlaysView);
 
         initAvatar(context);
-        giftsView = new ProfileGiftsViewV2(context, currentAccount, getDialogId(), topBackgroundView, avatarImage, resourcesProvider);
+        giftsView = new ProfileGiftsViewV2(context, currentAccount, getDialogId(), topView, avatarImage, resourcesProvider);
         topContentView.addView(giftsView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT));
         topContentView.addView(avatarImage, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT));
         initNameTextView(context);
@@ -1198,8 +1200,8 @@ public class ProfileActivityV2 extends BaseFragment implements NotificationCente
 
     private void updatedPeerColor() {
         adaptedColors.clear();
-        if (topBackgroundView != null) {
-            topBackgroundView.setBackgroundColorId(peerColor, true);
+        if (topView != null) {
+            topView.setBackgroundColorId(peerColor, true);
         }
         if (onlineTextView[1] != null) {
             int statusColor;
@@ -2110,7 +2112,7 @@ public class ProfileActivityV2 extends BaseFragment implements NotificationCente
                     backgroundGradient = new LinearGradient(0, 0, 0, backgroundGradientHeight = gradientHeight, new int[] { backgroundGradientColor2 = color2, backgroundGradientColor1 = color1 }, new float[] { 0, 1 }, Shader.TileMode.CLAMP);
                     backgroundPaint.setShader(backgroundGradient);
                 }
-                final float progressToGradient = (playProfileAnimation == 0 ? 1f : listFromStartToMiddleProgress) * hasColorAnimated.set(hasColorById);
+                final float progressToGradient = (playProfileAnimation == 0 ? 1f : 0) * hasColorAnimated.set(hasColorById);
                 if (progressToGradient < 1) {
                     canvas.drawRect(0, 0, getMeasuredWidth(), y1, paint);
                 }
@@ -2134,7 +2136,7 @@ public class ProfileActivityV2 extends BaseFragment implements NotificationCente
                     if (actionBar != null && menu != null) {
                         int restoreCount = canvas.save();
                         canvas.translate(actionBar.getX() + menu.getX(), actionBar.getY() + menu.getY());
-                        canvas.saveLayerAlpha(0, 0, menu.getMeasuredWidth(), menu.getMeasuredHeight(), (int) (255 * (1f - listFromStartToMiddleProgress)), Canvas.ALL_SAVE_FLAG);
+                        canvas.saveLayerAlpha(0, 0, menu.getMeasuredWidth(), menu.getMeasuredHeight(), 255, Canvas.ALL_SAVE_FLAG);
                         menu.draw(canvas);
                         canvas.restoreToCount(restoreCount);
                     }
