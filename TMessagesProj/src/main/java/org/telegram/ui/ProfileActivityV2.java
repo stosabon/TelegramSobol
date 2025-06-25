@@ -140,7 +140,9 @@ import org.telegram.ui.Stars.BotStarsController;
 import org.telegram.ui.Stars.ProfileGiftsViewV2;
 import org.telegram.ui.Stars.StarGiftPatterns;
 import org.telegram.ui.Stars.StarsController;
+import org.telegram.ui.Stories.ProfileStoriesView;
 import org.telegram.ui.Stories.StoriesController;
+import org.telegram.ui.Stories.recorder.HintView2;
 import org.telegram.ui.bots.BotBiometry;
 import org.telegram.ui.bots.BotLocation;
 import org.telegram.ui.bots.SetupEmojiStatusSheet;
@@ -183,6 +185,7 @@ public class ProfileActivityV2 extends BaseFragment implements NotificationCente
     private int playProfileAnimation;
 
     private FrameLayout topContentView;
+    private ProfileStoriesView storyView;
     public ProfileGiftsViewV2 giftsView;
     private AvatarImageView avatarImage; /** View fully copied */
     private HashMap<Integer, Integer> positionToOffset = new HashMap<>();
@@ -208,7 +211,8 @@ public class ProfileActivityV2 extends BaseFragment implements NotificationCente
 
     private float listOffsetDiff;
     private ActionsContainer actionsContainer;
-    private int extraHeight;
+    private float initialAnimationExtraHeight;
+    private float extraHeight;
     private int maxExtraHeight;
     private SimpleTextView[] nameTextView = new SimpleTextView[2];
     private float nameTextScale;
@@ -226,7 +230,11 @@ public class ProfileActivityV2 extends BaseFragment implements NotificationCente
     private ActionBarMenuItem editItem;
     private ActionBarMenuItem otherItem;
     private final static int start_secret_chat = 20;
+    private final static int gallery_menu_save = 21;
+    private final static int logout = 31;
     private final static int set_as_main = 33;
+    private final static int edit_avatar = 34;
+    private final static int delete_avatar = 35;
     private final static int add_photo = 36;
     private final static int gift_premium = 38;
     private final static int bot_privacy = 44;
@@ -400,6 +408,7 @@ public class ProfileActivityV2 extends BaseFragment implements NotificationCente
     private final ArrayList<Integer> visibleSortedUsers = new ArrayList<>();
     private int usersForceShowingIn = 0;
 
+    private boolean firstLayout = true;
     private boolean invalidateScroll = true;
     private boolean hasFallbackPhoto;
     private boolean[] isOnline = new boolean[1];
@@ -419,6 +428,10 @@ public class ProfileActivityV2 extends BaseFragment implements NotificationCente
     float floatingButtonHideProgress;
     private final AccelerateDecelerateInterpolator floatingInterpolator = new AccelerateDecelerateInterpolator();
     private SelectAnimatedEmojiDialog.SelectAnimatedEmojiDialogWindow selectAnimatedEmojiDialog;
+    private HintView2 collectibleHint;
+    private int collectibleHintBackgroundColor;
+    private Boolean collectibleHintVisible;
+    private TLRPC.TL_emojiStatusCollectible collectibleStatus;
 
     public ProfileActivityV2(Bundle args) {
         this(args, null);
@@ -532,7 +545,7 @@ public class ProfileActivityV2 extends BaseFragment implements NotificationCente
                     }
 
                     if (emptyView != null) {
-                        ((LayoutParams) emptyView.getLayoutParams()).topMargin = AndroidUtilities.dp(88) + AndroidUtilities.statusBarHeight;
+                        ((LayoutParams) emptyView.getLayoutParams()).topMargin = maxExtraHeight + AndroidUtilities.statusBarHeight;
                     }
                 }
 
@@ -540,7 +553,176 @@ public class ProfileActivityV2 extends BaseFragment implements NotificationCente
                     nameTextView[0].setRightPadding(nameTextView[0].getMeasuredWidth() - previousTransitionFragment.getAvatarContainer().getTitleTextView().getMeasuredWidth());
                 }
 
-                //TODO insert from original
+                if (!fragmentOpened && (expandPhoto || openAnimationInProgress && playProfileAnimation == 2)) {
+                    ignoreLayout = true;
+
+                    if (expandPhoto) {
+                        if (searchItem != null) {
+                            searchItem.setAlpha(0.0f);
+                            searchItem.setEnabled(false);
+                            searchItem.setVisibility(GONE);
+                        }
+                        nameTextView[1].setTextColor(Color.WHITE);
+                        nameTextView[1].setPivotY(nameTextView[1].getMeasuredHeight());
+                        nameTextView[1].setScaleX(1.67f);
+                        nameTextView[1].setScaleY(1.67f);
+                        if (scamDrawable != null) {
+                            scamDrawable.setColor(Color.argb(179, 255, 255, 255));
+                        }
+                        if (lockIconDrawable != null) {
+                            lockIconDrawable.setColorFilter(Color.WHITE, PorterDuff.Mode.MULTIPLY);
+                        }
+                        if (verifiedCrossfadeDrawable[0] != null) {
+                            verifiedCrossfadeDrawable[0].setProgress(1f);
+                        }
+                        if (verifiedCrossfadeDrawable[1] != null) {
+                            verifiedCrossfadeDrawable[1].setProgress(1f);
+                        }
+                        if (premiumCrossfadeDrawable[0] != null) {
+                            premiumCrossfadeDrawable[0].setProgress(1f);
+                        }
+                        if (premiumCrossfadeDrawable[1] != null) {
+                            premiumCrossfadeDrawable[1].setProgress(1f);
+                        }
+                        updateEmojiStatusDrawableColor(1f);
+                        onlineTextView[1].setTextColor(0xB3FFFFFF);
+                        actionBar.setItemsBackgroundColor(Theme.ACTION_BAR_WHITE_SELECTOR_COLOR, false);
+                        actionBar.setItemsColor(Color.WHITE, false);
+                        overlaysView.setOverlaysVisible();
+                        overlaysView.setAlphaValue(1.0f, false);
+                        avatarImage.setForegroundAlpha(1.0f);
+                        avatarImage.setVisibility(View.GONE);
+                        avatarsViewPager.resetCurrentItem();
+                        avatarsViewPager.setVisibility(View.VISIBLE);
+                        if (showStatusButton != null) {
+                            showStatusButton.setBackgroundColor(0x23ffffff);
+                        }
+                        if (storyView != null) {
+                            storyView.setExpandProgress(1f);
+                        }
+                        if (giftsView != null) {
+                            giftsView.setExpandProgress(1f);
+                        }
+                        expandPhoto = false;
+                        updateCollectibleHint();
+                    }
+
+                    allowPullingDown = true;
+                    isPulledDown = true;
+                    NotificationCenter.getGlobalInstance().postNotificationName(NotificationCenter.needCheckSystemBarColors, true);
+                    if (otherItem != null) {
+                        if (!getMessagesController().isChatNoForwards(currentChat)) {
+                            otherItem.showSubItem(gallery_menu_save);
+                        } else {
+                            otherItem.hideSubItem(gallery_menu_save);
+                        }
+                        if (imageUpdater != null) {
+                            otherItem.showSubItem(edit_avatar);
+                            otherItem.showSubItem(delete_avatar);
+                            otherItem.hideSubItem(logout);
+                        }
+                    }
+                    currentExpandAnimatorFracture = 1.0f;
+
+                    int paddingTop;
+                    int paddingBottom;
+                    if (isInLandscapeMode) {
+                        paddingTop = AndroidUtilities.dp(88f);
+                        paddingBottom = 0;
+                    } else {
+                        paddingTop = listView.getMeasuredWidth();
+                        paddingBottom = Math.max(0, getMeasuredHeight() - (listContentHeight + maxExtraHeight + actionBarHeight));
+                    }
+                    if (banFromGroup != 0) {
+                        paddingBottom += AndroidUtilities.dp(48);
+                        listView.setBottomGlowOffset(AndroidUtilities.dp(48));
+                    } else {
+                        listView.setBottomGlowOffset(0);
+                    }
+                    initialAnimationExtraHeight = paddingTop - actionBarHeight;
+                    if (playProfileAnimation == 0) {
+                        extraHeight = initialAnimationExtraHeight;
+                    }
+                    layoutManager.scrollToPositionWithOffset(0, -actionBarHeight);
+                    listView.setPadding(0, paddingTop, 0, paddingBottom);
+                    measureChildWithMargins(listView, widthMeasureSpec, 0, heightMeasureSpec, 0);
+                    listView.layout(0, actionBarHeight, listView.getMeasuredWidth(), actionBarHeight + listView.getMeasuredHeight());
+                    ignoreLayout = false;
+                } else if (fragmentOpened && !openAnimationInProgress && !firstLayout) {
+                    ignoreLayout = true;
+
+                    int paddingTop;
+                    int paddingBottom;
+                    if (isInLandscapeMode || AndroidUtilities.isTablet()) {
+                        paddingTop = AndroidUtilities.dp(88f);
+                        paddingBottom = 0;
+                    } else {
+                        paddingTop = listView.getMeasuredWidth();
+                        paddingBottom = Math.max(0, getMeasuredHeight() - (listContentHeight + maxExtraHeight + actionBarHeight));
+                    }
+                    if (banFromGroup != 0) {
+                        paddingBottom += AndroidUtilities.dp(48);
+                        listView.setBottomGlowOffset(AndroidUtilities.dp(48));
+                    } else {
+                        listView.setBottomGlowOffset(0);
+                    }
+                    int currentPaddingTop = listView.getPaddingTop();
+                    View view = null;
+                    int pos = RecyclerView.NO_POSITION;
+                    for (int i = 0; i < listView.getChildCount(); i++) {
+                        int p = listView.getChildAdapterPosition(listView.getChildAt(i));
+                        if (p != RecyclerView.NO_POSITION) {
+                            view = listView.getChildAt(i);
+                            pos = p;
+                            break;
+                        }
+                    }
+                    if (view == null) {
+                        view = listView.getChildAt(0);
+                        if (view != null) {
+                            RecyclerView.ViewHolder holder = listView.findContainingViewHolder(view);
+                            pos = holder.getAdapterPosition();
+                            if (pos == RecyclerView.NO_POSITION) {
+                                pos = holder.getPosition();
+                            }
+                        }
+                    }
+
+                    int top = paddingTop;
+                    if (view != null) {
+                        top = view.getTop();
+                    }
+                    boolean layout = false;
+                    if ((actionBar.isSearchFieldVisible() || openSimilar) && sharedMediaRow >= 0) {
+                        layoutManager.scrollToPositionWithOffset(sharedMediaRow, -paddingTop);
+                        layout = true;
+                    } else if (invalidateScroll || currentPaddingTop != paddingTop) {
+                        if (savedScrollPosition >= 0) {
+                            layoutManager.scrollToPositionWithOffset(savedScrollPosition, savedScrollOffset - paddingTop);
+                        } else if ((!changed || !allowPullingDown) && view != null) {
+                            if (pos == 0 && !allowPullingDown && top > maxExtraHeight) {
+                                top = maxExtraHeight;
+                            }
+                            layoutManager.scrollToPositionWithOffset(pos, top - paddingTop);
+                            layout = true;
+                        } else {
+                            layoutManager.scrollToPositionWithOffset(0, maxExtraHeight - paddingTop);
+                        }
+                    }
+                    if (currentPaddingTop != paddingTop || listView.getPaddingBottom() != paddingBottom) {
+                        listView.setPadding(0, paddingTop, 0, paddingBottom);
+                        layout = true;
+                    }
+                    if (layout) {
+                        measureChildWithMargins(listView, widthMeasureSpec, 0, heightMeasureSpec, 0);
+                        try {
+                            listView.layout(0, actionBarHeight, listView.getMeasuredWidth(), actionBarHeight + listView.getMeasuredHeight());
+                        } catch (Exception e) {
+                            FileLog.e(e);
+                        }
+                    }
+                    ignoreLayout = false;
+                }
 
                 boolean portrait = height > MeasureSpec.getSize(widthMeasureSpec);
                 if (portrait != wasPortrait) {
@@ -579,6 +761,7 @@ public class ProfileActivityV2 extends BaseFragment implements NotificationCente
             @Override
             protected void onLayout(boolean changed, int left, int top, int right, int bottom) {
                 super.onLayout(changed, left, top, right, bottom);
+                firstLayout = false;
                 final int actionBarHeight = ActionBar.getCurrentActionBarHeight() + (actionBar.getOccupyStatusBar() ? AndroidUtilities.statusBarHeight : 0);
 
                 listFromStartToMiddleProgress = (float) extraHeight / maxExtraHeight;
@@ -2115,8 +2298,8 @@ public class ProfileActivityV2 extends BaseFragment implements NotificationCente
             if (view != null) {
                 savedScrollPosition = position;
                 savedScrollOffset = view.getTop();
-                if (savedScrollPosition == 0 && !allowPullingDown && savedScrollOffset > AndroidUtilities.dp(88)) {
-                    savedScrollOffset = AndroidUtilities.dp(88);
+                if (savedScrollPosition == 0 && !allowPullingDown && savedScrollOffset > maxExtraHeight) {
+                    savedScrollOffset = maxExtraHeight;
                 }
 
                 layoutManager.scrollToPositionWithOffset(position, view.getTop() - listView.getPaddingTop());
@@ -2630,7 +2813,7 @@ public class ProfileActivityV2 extends BaseFragment implements NotificationCente
             bottomPaddingRow = rowCount++;
         }
         final int actionBarHeight = actionBar != null ? ActionBar.getCurrentActionBarHeight() + (actionBar.getOccupyStatusBar() ? AndroidUtilities.statusBarHeight : 0) : 0;
-        if (listView == null || prevRowsCount > rowCount || listContentHeight != 0 && listContentHeight + actionBarHeight + AndroidUtilities.dp(88) < listView.getMeasuredHeight()) {
+        if (listView == null || prevRowsCount > rowCount || listContentHeight != 0 && listContentHeight + actionBarHeight + maxExtraHeight < listView.getMeasuredHeight()) {
             lastMeasuredContentWidth = 0;
         }
         if (listView != null) {
@@ -4698,6 +4881,18 @@ public class ProfileActivityV2 extends BaseFragment implements NotificationCente
         }
         //transitionAnimationInProress = false;
         //checkPhotoDescriptionAlpha();
+    }
+
+    public void updateCollectibleHint() {
+        if (collectibleHint == null) return;
+        collectibleHint.setJointPx(0, -collectibleHint.getPaddingLeft() + nameTextView[1].getX() + (nameTextView[1].getRightDrawableX() - nameTextView[1].getRightDrawableWidth() * lerp(0.45f, 0.25f, currentExpandAnimatorValue)) * nameTextView[1].getScaleX());
+        final float expanded = AndroidUtilities.lerp(expandAnimatorValues, currentExpandAnimatorFracture);
+        collectibleHint.setTranslationY(-collectibleHint.getPaddingBottom() + nameTextView[1].getY() - dp(24) + lerp(dp(6), -dp(12), expanded));
+        collectibleHint.setBgColor(ColorUtils.blendARGB(collectibleHintBackgroundColor, 0x50000000, expanded));
+        final boolean visible = extraHeight >= dp(82);
+        if (collectibleHintVisible == null || collectibleHintVisible != visible) {
+            collectibleHint.animate().alpha((collectibleHintVisible = visible) ? 1.0f : 0.0f).setInterpolator(CubicBezierInterpolator.EASE_OUT).setDuration(200).start();
+        }
     }
 
 }
