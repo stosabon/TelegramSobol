@@ -29,6 +29,7 @@ import android.text.SpannableString;
 import android.text.SpannableStringBuilder;
 import android.text.Spanned;
 import android.text.TextPaint;
+import android.text.TextUtils;
 import android.util.Log;
 import android.util.Property;
 import android.util.SparseIntArray;
@@ -43,10 +44,12 @@ import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
+import androidx.annotation.Keep;
 import androidx.annotation.NonNull;
 import androidx.collection.LongSparseArray;
 import androidx.core.content.ContextCompat;
 import androidx.core.graphics.ColorUtils;
+import androidx.recyclerview.widget.DiffUtil;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 import androidx.viewpager.widget.PagerAdapter;
@@ -56,6 +59,7 @@ import org.telegram.PhoneFormat.PhoneFormat;
 import org.telegram.messenger.AndroidUtilities;
 import org.telegram.messenger.BuildVars;
 import org.telegram.messenger.ChatObject;
+import org.telegram.messenger.ContactsController;
 import org.telegram.messenger.DialogObject;
 import org.telegram.messenger.DocumentObject;
 import org.telegram.messenger.Emoji;
@@ -119,14 +123,19 @@ import org.telegram.ui.Components.SizeNotifierFrameLayout;
 import org.telegram.ui.Components.VectorAvatarThumbDrawable;
 import org.telegram.tgnet.TLRPC;
 import org.telegram.ui.Components.voip.VoIPHelper;
+import org.telegram.ui.Stars.BotStarsController;
 import org.telegram.ui.Stars.ProfileGiftsViewV2;
 import org.telegram.ui.Stars.StarGiftPatterns;
 import org.telegram.ui.Stars.StarsController;
+import org.telegram.ui.bots.BotBiometry;
+import org.telegram.ui.bots.BotLocation;
+import org.telegram.ui.bots.SetupEmojiStatusSheet;
 
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 
 public class ProfileActivityV2 extends BaseFragment implements NotificationCenter.NotificationCenterDelegate, ImageUpdater.ImageUpdaterDelegate {
@@ -136,6 +145,7 @@ public class ProfileActivityV2 extends BaseFragment implements NotificationCente
     private TopView topView; /** View fully copied */
     private OverlaysView overlaysView; /** View fully copied */
     public SharedMediaLayout sharedMediaLayout;
+    private SharedMediaLayout.SharedMediaPreloader sharedMediaPreloader;
     private int overlayCountVisible;
     private float listViewVelocityY;
     private int searchTransitionOffset;
@@ -196,7 +206,109 @@ public class ProfileActivityV2 extends BaseFragment implements NotificationCente
     private RecyclerListView listView;
     private ListAdapter listAdapter;
     private LinearLayoutManager layoutManager;
+    private int lastMeasuredContentWidth;
+    private int listContentHeight;
     private int rowCount;
+    private int setAvatarRow;
+    private int setAvatarSectionRow;
+    private int channelRow;
+    private int channelDividerRow;
+    private int numberSectionRow;
+    private int numberRow;
+    public int birthdayRow;
+    private int setUsernameRow;
+    private int bioRow;
+    private int phoneSuggestionSectionRow;
+    private int graceSuggestionRow;
+    private int graceSuggestionSectionRow;
+    private int phoneSuggestionRow;
+    private int passwordSuggestionSectionRow;
+    private int passwordSuggestionRow;
+    private int settingsSectionRow;
+    private int settingsSectionRow2;
+    private int notificationRow;
+    private int languageRow;
+    private int privacyRow;
+    private int dataRow;
+    private int chatRow;
+    private int filtersRow;
+    private int liteModeRow;
+    private int stickersRow;
+    private int devicesRow;
+    private int devicesSectionRow;
+    private int helpHeaderRow;
+    private int questionRow;
+    private int faqRow;
+    private int policyRow;
+    private int helpSectionCell;
+    private int debugHeaderRow;
+    private int sendLogsRow;
+    private int sendLastLogsRow;
+    private int clearLogsRow;
+    private int switchBackendRow;
+    private int versionRow;
+    private int emptyRow;
+    private int bottomPaddingRow;
+    private int infoHeaderRow;
+    private int phoneRow;
+    private int locationRow;
+    private int userInfoRow;
+    private int channelInfoRow;
+    private int usernameRow;
+    private int notificationsDividerRow;
+    private int notificationsRow;
+    private int bizHoursRow;
+    private int bizLocationRow;
+    private int notificationsSimpleRow;
+    private int infoStartRow, infoEndRow;
+    private int infoSectionRow;
+    private int affiliateRow;
+    private int infoAffiliateRow;
+    private int sendMessageRow;
+    private int reportRow;
+    private int reportReactionRow;
+    private int reportDividerRow;
+    private int addToContactsRow;
+    private int addToGroupButtonRow;
+    private int addToGroupInfoRow;
+    private int premiumRow;
+    private int starsRow;
+    private int businessRow;
+    private int premiumGiftingRow;
+    private int premiumSectionsRow;
+    private int botAppRow;
+    private int botPermissionsHeader;
+    @Keep
+    private int botPermissionLocation;
+    @Keep
+    private int botPermissionEmojiStatus;
+    private int botPermissionEmojiStatusReqId;
+    @Keep
+    private int botPermissionBiometry;
+    private int botPermissionsDivider;
+    private int settingsTimerRow;
+    private int settingsKeyRow;
+    private int secretSettingsSectionRow;
+    private int membersHeaderRow;
+    private int membersStartRow;
+    private int membersEndRow;
+    private int addMemberRow;
+    private int subscribersRow;
+    private int subscribersRequestsRow;
+    private int administratorsRow;
+    private int settingsRow;
+    private int botStarsBalanceRow;
+    private int botTonBalanceRow;
+    private int channelBalanceRow;
+    private int channelBalanceSectionRow;
+    private int balanceDividerRow;
+    private int blockedUsersRow;
+    private int membersSectionRow;
+    private int sharedMediaRow;
+    private int unblockRow;
+    private int joinRow;
+    private int lastSectionRow;
+
     private final AnimatedEmojiDrawable.SwapAnimatedEmojiDrawable[] emojiStatusDrawable = new AnimatedEmojiDrawable.SwapAnimatedEmojiDrawable[2];
     private final CrossfadeDrawable[] premiumCrossfadeDrawable = new CrossfadeDrawable[2];
     private final Drawable[] premiumStarDrawable = new Drawable[2];
@@ -236,6 +348,8 @@ public class ProfileActivityV2 extends BaseFragment implements NotificationCente
     private boolean expandPhoto;
     private boolean needSendMessage;private boolean isTopic;
     private boolean isBot;
+    private BotLocation botLocation;
+    private BotBiometry botBiometry;
     private long topicId;
     private boolean userBlocked;
     private int actionBarAnimationColorFrom = 0;
@@ -243,6 +357,7 @@ public class ProfileActivityV2 extends BaseFragment implements NotificationCente
     private ArrayList<Integer> sortedUsers;
 
     private TLRPC.UserFull userInfo;
+    public ProfileChannelCell.ChannelMessageFetcher profileChannelMessageFetcher;
     private TLRPC.ChatFull chatInfo;
     private TLRPC.Chat currentChat;
     private TLRPC.EncryptedChat currentEncryptedChat;
@@ -250,7 +365,9 @@ public class ProfileActivityV2 extends BaseFragment implements NotificationCente
     private TLRPC.FileLocation avatar;
     private TLRPC.FileLocation avatarBig;
     private LongSparseArray<TLRPC.ChatParticipant> participantsMap = new LongSparseArray<>();
-
+    private final ArrayList<TLRPC.ChatParticipant> visibleChatParticipants = new ArrayList<>();
+    private final ArrayList<Integer> visibleSortedUsers = new ArrayList<>();
+    private int usersForceShowingIn = 0;
     private boolean hasFallbackPhoto;
     private boolean[] isOnline = new boolean[1];
     private int actionBarBackgroundColor;
@@ -273,6 +390,7 @@ public class ProfileActivityV2 extends BaseFragment implements NotificationCente
 
     public ProfileActivityV2(Bundle args, SharedMediaLayout.SharedMediaPreloader preloader) {
         super(args);
+        sharedMediaPreloader = preloader;
     }
 
     @Override
@@ -1771,6 +1889,596 @@ public class ProfileActivityV2 extends BaseFragment implements NotificationCente
                 }
             }
         });
+    }
+
+    public void updateListAnimated(boolean updateOnlineCount) {
+        updateListAnimated(updateOnlineCount, false);
+    }
+
+    private void updateListAnimated(boolean updateOnlineCount, boolean triedInLayout) {
+        if (listAdapter == null) {
+            if (updateOnlineCount) {
+                updateOnlineCount(false);
+            }
+            updateRowsIds();
+            return;
+        }
+
+        if (!triedInLayout && listView.isInLayout()) {
+            if (!listView.isAttachedToWindow()) return;
+            listView.post(() -> updateListAnimated(updateOnlineCount, true));
+            return;
+        }
+
+        DiffCallback diffCallback = new DiffCallback();
+        diffCallback.oldRowCount = rowCount;
+        diffCallback.fillPositions(diffCallback.oldPositionToItem);
+        diffCallback.oldChatParticipant.clear();
+        diffCallback.oldChatParticipantSorted.clear();
+        diffCallback.oldChatParticipant.addAll(visibleChatParticipants);
+        diffCallback.oldChatParticipantSorted.addAll(visibleSortedUsers);
+        diffCallback.oldMembersStartRow = membersStartRow;
+        diffCallback.oldMembersEndRow = membersEndRow;
+        if (updateOnlineCount) {
+            updateOnlineCount(false);
+        }
+        saveScrollPosition();
+        updateRowsIds();
+        diffCallback.fillPositions(diffCallback.newPositionToItem);
+        try {
+            DiffUtil.calculateDiff(diffCallback).dispatchUpdatesTo(listAdapter);
+        } catch (Exception e) {
+            FileLog.e(e);
+            listAdapter.notifyDataSetChanged();
+        }
+        if (savedScrollPosition >= 0) {
+            layoutManager.scrollToPositionWithOffset(savedScrollPosition, savedScrollOffset - listView.getPaddingTop());
+        }
+        AndroidUtilities.updateVisibleRows(listView);
+    }
+
+    int savedScrollPosition = -1;
+    int savedScrollOffset;
+    boolean savedScrollToSharedMedia;
+
+    private void saveScrollPosition() {
+        if (listView != null && layoutManager != null && listView.getChildCount() > 0 && !savedScrollToSharedMedia) {
+            View view = null;
+            int position = -1;
+            int top = Integer.MAX_VALUE;
+            for (int i = 0; i < listView.getChildCount(); i++) {
+                int childPosition = listView.getChildAdapterPosition(listView.getChildAt(i));
+                View child = listView.getChildAt(i);
+                if (childPosition != RecyclerListView.NO_POSITION && child.getTop() < top) {
+                    view = child;
+                    position = childPosition;
+                    top = child.getTop();
+                }
+            }
+            if (view != null) {
+                savedScrollPosition = position;
+                savedScrollOffset = view.getTop();
+                if (savedScrollPosition == 0 && !allowPullingDown && savedScrollOffset > AndroidUtilities.dp(88)) {
+                    savedScrollOffset = AndroidUtilities.dp(88);
+                }
+
+                layoutManager.scrollToPositionWithOffset(position, view.getTop() - listView.getPaddingTop());
+            }
+        }
+    }
+
+    private void updateRowsIds() {
+        int prevRowsCount = rowCount;
+        rowCount = 0;
+
+        setAvatarRow = -1;
+        setAvatarSectionRow = -1;
+        numberSectionRow = -1;
+        numberRow = -1;
+        birthdayRow = -1;
+        setUsernameRow = -1;
+        bioRow = -1;
+        channelRow = -1;
+        channelDividerRow = -1;
+        phoneSuggestionSectionRow = -1;
+        phoneSuggestionRow = -1;
+        passwordSuggestionSectionRow = -1;
+        graceSuggestionRow = -1;
+        graceSuggestionSectionRow = -1;
+        passwordSuggestionRow = -1;
+        settingsSectionRow = -1;
+        settingsSectionRow2 = -1;
+        notificationRow = -1;
+        languageRow = -1;
+        premiumRow = -1;
+        starsRow = -1;
+        businessRow = -1;
+        premiumGiftingRow = -1;
+        premiumSectionsRow = -1;
+        privacyRow = -1;
+        dataRow = -1;
+        chatRow = -1;
+        filtersRow = -1;
+        liteModeRow = -1;
+        stickersRow = -1;
+        devicesRow = -1;
+        devicesSectionRow = -1;
+        helpHeaderRow = -1;
+        questionRow = -1;
+        faqRow = -1;
+        policyRow = -1;
+        helpSectionCell = -1;
+        debugHeaderRow = -1;
+        sendLogsRow = -1;
+        sendLastLogsRow = -1;
+        clearLogsRow = -1;
+        switchBackendRow = -1;
+        versionRow = -1;
+        botAppRow = -1;
+        botPermissionsHeader = -1;
+        botPermissionBiometry = -1;
+        botPermissionEmojiStatus = -1;
+        botPermissionLocation = -1;
+        botPermissionsDivider = -1;
+
+        sendMessageRow = -1;
+        reportRow = -1;
+        reportReactionRow = -1;
+        addToContactsRow = -1;
+        emptyRow = -1;
+        infoHeaderRow = -1;
+        phoneRow = -1;
+        userInfoRow = -1;
+        locationRow = -1;
+        channelInfoRow = -1;
+        usernameRow = -1;
+        settingsTimerRow = -1;
+        settingsKeyRow = -1;
+        notificationsDividerRow = -1;
+        reportDividerRow = -1;
+        notificationsRow = -1;
+        bizLocationRow = -1;
+        bizHoursRow = -1;
+        infoSectionRow = -1;
+        affiliateRow = -1;
+        infoAffiliateRow = -1;
+        secretSettingsSectionRow = -1;
+        bottomPaddingRow = -1;
+        addToGroupButtonRow = -1;
+        addToGroupInfoRow = -1;
+        infoStartRow = -1;
+        infoEndRow = -1;
+
+        membersHeaderRow = -1;
+        membersStartRow = -1;
+        membersEndRow = -1;
+        addMemberRow = -1;
+        subscribersRow = -1;
+        subscribersRequestsRow = -1;
+        administratorsRow = -1;
+        blockedUsersRow = -1;
+        membersSectionRow = -1;
+        channelBalanceSectionRow = -1;
+        sharedMediaRow = -1;
+        notificationsSimpleRow = -1;
+        settingsRow = -1;
+        botStarsBalanceRow = -1;
+        botTonBalanceRow = -1;
+        channelBalanceRow = -1;
+        balanceDividerRow = -1;
+
+        unblockRow = -1;
+        joinRow = -1;
+        lastSectionRow = -1;
+        visibleChatParticipants.clear();
+        visibleSortedUsers.clear();
+
+        boolean hasMedia = false;
+        if (sharedMediaPreloader != null) {
+            int[] lastMediaCount = sharedMediaPreloader.getLastMediaCount();
+            for (int a = 0; a < lastMediaCount.length; a++) {
+                if (lastMediaCount[a] > 0) {
+                    hasMedia = true;
+                    break;
+                }
+            }
+            if (!hasMedia) {
+                hasMedia = sharedMediaPreloader.hasSavedMessages;
+            }
+            if (!hasMedia) {
+                hasMedia = sharedMediaPreloader.hasPreviews;
+            }
+        }
+        if (!hasMedia && userInfo != null) {
+            hasMedia = userInfo.stories_pinned_available;
+        }
+        if (!hasMedia && userInfo != null && userInfo.bot_info != null) {
+            hasMedia = userInfo.bot_info.has_preview_medias;
+        }
+        if (!hasMedia && (userInfo != null && userInfo.stargifts_count > 0 || chatInfo != null && chatInfo.stargifts_count > 0)) {
+            hasMedia = true;
+        }
+        if (!hasMedia && chatInfo != null) {
+            hasMedia = chatInfo.stories_pinned_available;
+        }
+        if (!hasMedia) {
+            if (chatId != 0 && MessagesController.ChannelRecommendations.hasRecommendations(currentAccount, -chatId)) {
+                hasMedia = true;
+            } else if (isBot && userId != 0 && MessagesController.ChannelRecommendations.hasRecommendations(currentAccount, userId)) {
+                hasMedia = true;
+            }
+        }
+
+        if (userId != 0) {
+            if (LocaleController.isRTL) {
+                emptyRow = rowCount++;
+            }
+            TLRPC.User user = getMessagesController().getUser(userId);
+
+            if (UserObject.isUserSelf(user) && !myProfile) {
+                if (avatarBig == null && (user.photo == null || !(user.photo.photo_big instanceof TLRPC.TL_fileLocation_layer97) && !(user.photo.photo_big instanceof TLRPC.TL_fileLocationToBeDeprecated)) && (avatarsViewPager == null || avatarsViewPager.getRealCount() == 0)) {
+                    setAvatarRow = rowCount++;
+                    setAvatarSectionRow = rowCount++;
+                }
+                numberSectionRow = rowCount++;
+                numberRow = rowCount++;
+                setUsernameRow = rowCount++;
+                bioRow = rowCount++;
+
+                settingsSectionRow = rowCount++;
+
+                Set<String> suggestions = getMessagesController().pendingSuggestions;
+                if (suggestions.contains("PREMIUM_GRACE")) {
+                    graceSuggestionRow = rowCount++;
+                    graceSuggestionSectionRow = rowCount++;
+                } else if (suggestions.contains("VALIDATE_PHONE_NUMBER")) {
+                    phoneSuggestionRow = rowCount++;
+                    phoneSuggestionSectionRow = rowCount++;
+                } else if (suggestions.contains("VALIDATE_PASSWORD")) {
+                    passwordSuggestionRow = rowCount++;
+                    passwordSuggestionSectionRow = rowCount++;
+                }
+
+                settingsSectionRow2 = rowCount++;
+                chatRow = rowCount++;
+                privacyRow = rowCount++;
+                notificationRow = rowCount++;
+                dataRow = rowCount++;
+                liteModeRow = rowCount++;
+                if (getMessagesController().filtersEnabled || !getMessagesController().dialogFilters.isEmpty()) {
+                    filtersRow = rowCount++;
+                }
+                devicesRow = rowCount++;
+                languageRow = rowCount++;
+                devicesSectionRow = rowCount++;
+                if (!getMessagesController().premiumFeaturesBlocked()) {
+                    premiumRow = rowCount++;
+                }
+                if (getMessagesController().starsPurchaseAvailable()) {
+                    starsRow = rowCount++;
+                }
+                if (!getMessagesController().premiumFeaturesBlocked()) {
+                    businessRow = rowCount++;
+                }
+                if (!getMessagesController().premiumPurchaseBlocked()) {
+                    premiumGiftingRow = rowCount++;
+                }
+                if (premiumRow >= 0 || starsRow >= 0 || businessRow >= 0 || premiumGiftingRow >= 0) {
+                    premiumSectionsRow = rowCount++;
+                }
+                helpHeaderRow = rowCount++;
+                questionRow = rowCount++;
+                faqRow = rowCount++;
+                policyRow = rowCount++;
+                if (BuildVars.LOGS_ENABLED || BuildVars.DEBUG_PRIVATE_VERSION) {
+                    helpSectionCell = rowCount++;
+                    debugHeaderRow = rowCount++;
+                }
+                if (BuildVars.LOGS_ENABLED) {
+                    sendLogsRow = rowCount++;
+                    sendLastLogsRow = rowCount++;
+                    clearLogsRow = rowCount++;
+                }
+                if (BuildVars.DEBUG_VERSION) {
+                    switchBackendRow = rowCount++;
+                }
+                versionRow = rowCount++;
+            } else {
+                String username = UserObject.getPublicUsername(user);
+                boolean hasInfo = userInfo != null && !TextUtils.isEmpty(userInfo.about) || user != null && !TextUtils.isEmpty(username);
+                boolean hasPhone = user != null && (!TextUtils.isEmpty(user.phone) || !TextUtils.isEmpty(vcardPhone));
+
+                if (userInfo != null && (userInfo.flags2 & 64) != 0 && (profileChannelMessageFetcher == null || !profileChannelMessageFetcher.loaded || profileChannelMessageFetcher.messageObject != null)) {
+                    final TLRPC.Chat channel = getMessagesController().getChat(userInfo.personal_channel_id);
+                    if (channel != null && (ChatObject.isPublic(channel) || !ChatObject.isNotInChat(channel))) {
+                        channelRow = rowCount++;
+                        channelDividerRow = rowCount++;
+                    }
+                }
+                infoStartRow = rowCount;
+                infoHeaderRow = rowCount++;
+                if (!isBot && (hasPhone || !hasInfo)) {
+                    phoneRow = rowCount++;
+                }
+                if (userInfo != null && !TextUtils.isEmpty(userInfo.about)) {
+                    userInfoRow = rowCount++;
+                }
+                if (user != null && username != null) {
+                    usernameRow = rowCount++;
+                }
+                if (userInfo != null) {
+                    if (userInfo.birthday != null) {
+                        birthdayRow = rowCount++;
+                    }
+                    if (userInfo.business_work_hours != null) {
+                        bizHoursRow = rowCount++;
+                    }
+                    if (userInfo.business_location != null) {
+                        bizLocationRow = rowCount++;
+                    }
+                }
+                if (userId != getUserConfig().getClientUserId()) {
+                    notificationsRow = rowCount++;
+                }
+                if (isBot && user != null && user.bot_has_main_app) {
+                    botAppRow = rowCount++;
+                }
+                infoEndRow = rowCount - 1;
+                infoSectionRow = rowCount++;
+
+                if (isBot && userInfo != null && userInfo.starref_program != null && (userInfo.starref_program.flags & 2) == 0 && getMessagesController().starrefConnectAllowed) {
+                    affiliateRow = rowCount++;
+                    infoAffiliateRow = rowCount++;
+                }
+
+                if (isBot) {
+                    if (botLocation == null && getContext() != null) botLocation = BotLocation.get(getContext(), currentAccount, userId);
+                    if (botBiometry == null && getContext() != null) botBiometry = BotBiometry.get(getContext(), currentAccount, userId);
+                    final boolean containsPermissionLocation = botLocation != null && botLocation.asked();
+                    final boolean containsPermissionBiometry = botBiometry != null && botBiometry.asked();
+                    final boolean containsPermissionEmojiStatus = userInfo != null && userInfo.bot_can_manage_emoji_status || SetupEmojiStatusSheet.getAccessRequested(getContext(), currentAccount, userId);
+
+                    if (containsPermissionEmojiStatus || containsPermissionLocation || containsPermissionBiometry) {
+                        botPermissionsHeader = rowCount++;
+                        if (containsPermissionEmojiStatus) {
+                            botPermissionEmojiStatus = rowCount++;
+                        }
+                        if (containsPermissionLocation) {
+                            botPermissionLocation = rowCount++;
+                        }
+                        if (containsPermissionBiometry) {
+                            botPermissionBiometry = rowCount++;
+                        }
+                        botPermissionsDivider = rowCount++;
+                    }
+                }
+
+                if (currentEncryptedChat instanceof TLRPC.TL_encryptedChat) {
+                    settingsTimerRow = rowCount++;
+                    settingsKeyRow = rowCount++;
+                    secretSettingsSectionRow = rowCount++;
+                }
+
+                if (user != null && !isBot && currentEncryptedChat == null && user.id != getUserConfig().getClientUserId()) {
+                    if (userBlocked) {
+                        unblockRow = rowCount++;
+                        lastSectionRow = rowCount++;
+                    }
+                }
+
+
+                boolean divider = false;
+                if (user != null && user.bot) {
+                    if (userInfo != null && userInfo.can_view_revenue && BotStarsController.getInstance(currentAccount).getTONBalance(userId) > 0) {
+                        botTonBalanceRow = rowCount++;
+                    }
+                    if (BotStarsController.getInstance(currentAccount).getBotStarsBalance(userId).amount > 0 || BotStarsController.getInstance(currentAccount).hasTransactions(userId)) {
+                        botStarsBalanceRow = rowCount++;
+                    }
+                }
+
+                if (user != null && isBot && !user.bot_nochats) {
+                    addToGroupButtonRow = rowCount++;
+                    addToGroupInfoRow = rowCount++;
+                } else if (botStarsBalanceRow >= 0) {
+                    divider = true;
+                }
+
+                if (!myProfile && showAddToContacts && user != null && !user.contact && !user.bot && !UserObject.isService(user.id)) {
+                    addToContactsRow = rowCount++;
+                    divider = true;
+                }
+                if (!myProfile && reportReactionMessageId != 0 && !ContactsController.getInstance(currentAccount).isContact(userId)) {
+                    reportReactionRow = rowCount++;
+                    divider = true;
+                }
+                if (divider) {
+                    reportDividerRow = rowCount++;
+                }
+
+                if (hasMedia || (user != null && user.bot && user.bot_can_edit) || userInfo != null && userInfo.common_chats_count != 0 || myProfile) {
+                    sharedMediaRow = rowCount++;
+                } else if (lastSectionRow == -1 && needSendMessage) {
+                    sendMessageRow = rowCount++;
+                    reportRow = rowCount++;
+                    lastSectionRow = rowCount++;
+                }
+            }
+        } else if (isTopic) {
+            infoHeaderRow = rowCount++;
+            usernameRow = rowCount++;
+            notificationsSimpleRow = rowCount++;
+            infoSectionRow = rowCount++;
+            if (hasMedia) {
+                sharedMediaRow = rowCount++;
+            }
+        } else if (chatId != 0) {
+            if (chatInfo != null && (!TextUtils.isEmpty(chatInfo.about) || chatInfo.location instanceof TLRPC.TL_channelLocation) || ChatObject.isPublic(currentChat)) {
+                if (LocaleController.isRTL && ChatObject.isChannel(currentChat) && chatInfo != null && !currentChat.megagroup && chatInfo.linked_chat_id != 0) {
+                    emptyRow = rowCount++;
+                }
+                infoHeaderRow = rowCount++;
+                if (chatInfo != null) {
+                    if (!TextUtils.isEmpty(chatInfo.about)) {
+                        channelInfoRow = rowCount++;
+                    }
+                    if (chatInfo.location instanceof TLRPC.TL_channelLocation) {
+                        locationRow = rowCount++;
+                    }
+                }
+                if (ChatObject.isPublic(currentChat)) {
+                    usernameRow = rowCount++;
+                }
+            }
+            notificationsRow = rowCount++;
+            infoSectionRow = rowCount++;
+
+            if (ChatObject.isChannel(currentChat) && !currentChat.megagroup) {
+                if (chatInfo != null && (currentChat.creator || chatInfo.can_view_participants)) {
+                    membersHeaderRow = rowCount++;
+                    subscribersRow = rowCount++;
+                    if (chatInfo != null && chatInfo.requests_pending > 0) {
+                        subscribersRequestsRow = rowCount++;
+                    }
+                    administratorsRow = rowCount++;
+                    if (chatInfo != null && (chatInfo.banned_count != 0 || chatInfo.kicked_count != 0)) {
+                        blockedUsersRow = rowCount++;
+                    }
+                    if (
+                            chatInfo != null &&
+                                    chatInfo.can_view_stars_revenue && (
+                                    BotStarsController.getInstance(currentAccount).getBotStarsBalance(-chatId).amount > 0 ||
+                                            BotStarsController.getInstance(currentAccount).hasTransactions(-chatId)
+                            ) ||
+                                    chatInfo != null &&
+                                            chatInfo.can_view_revenue &&
+                                            BotStarsController.getInstance(currentAccount).getTONBalance(-chatId) > 0
+                    ) {
+                        channelBalanceRow = rowCount++;
+                    }
+                    settingsRow = rowCount++;
+                    channelBalanceSectionRow = rowCount++;
+                }
+            } else {
+                if (
+                        chatInfo != null &&
+                                chatInfo.can_view_stars_revenue && (
+                                BotStarsController.getInstance(currentAccount).getBotStarsBalance(-chatId).amount > 0 ||
+                                        BotStarsController.getInstance(currentAccount).hasTransactions(-chatId)
+                        ) ||
+                                chatInfo != null &&
+                                        chatInfo.can_view_revenue &&
+                                        BotStarsController.getInstance(currentAccount).getTONBalance(-chatId) > 0
+                ) {
+                    channelBalanceRow = rowCount++;
+                    channelBalanceSectionRow = rowCount++;
+                }
+            }
+
+            if (ChatObject.isChannel(currentChat)) {
+                if (!isTopic && chatInfo != null && currentChat.megagroup && chatInfo.participants != null && chatInfo.participants.participants != null && !chatInfo.participants.participants.isEmpty()) {
+                    if (!ChatObject.isNotInChat(currentChat) && ChatObject.canAddUsers(currentChat) && chatInfo.participants_count < getMessagesController().maxMegagroupCount) {
+                        addMemberRow = rowCount++;
+                    }
+                    int count = chatInfo.participants.participants.size();
+                    if ((count <= 5 || !hasMedia || usersForceShowingIn == 1) && usersForceShowingIn != 2) {
+                        if (addMemberRow == -1) {
+                            membersHeaderRow = rowCount++;
+                        }
+                        membersStartRow = rowCount;
+                        rowCount += count;
+                        membersEndRow = rowCount;
+                        membersSectionRow = rowCount++;
+                        visibleChatParticipants.addAll(chatInfo.participants.participants);
+                        if (sortedUsers != null) {
+                            visibleSortedUsers.addAll(sortedUsers);
+                        }
+                        usersForceShowingIn = 1;
+                        if (sharedMediaLayout != null) {
+                            sharedMediaLayout.setChatUsers(null, null);
+                        }
+                    } else {
+                        if (addMemberRow != -1) {
+                            membersSectionRow = rowCount++;
+                        }
+                        if (sharedMediaLayout != null) {
+                            if (!sortedUsers.isEmpty()) {
+                                usersForceShowingIn = 2;
+                            }
+                            sharedMediaLayout.setChatUsers(sortedUsers, chatInfo);
+                        }
+                    }
+                } else {
+                    if (!ChatObject.isNotInChat(currentChat) && ChatObject.canAddUsers(currentChat) && chatInfo != null && chatInfo.participants_hidden) {
+                        addMemberRow = rowCount++;
+                        membersSectionRow = rowCount++;
+                    }
+                    if (sharedMediaLayout != null) {
+                        sharedMediaLayout.updateAdapters();
+                    }
+                }
+
+                if (lastSectionRow == -1 && currentChat.left && !currentChat.kicked) {
+                    long requestedTime = MessagesController.getNotificationsSettings(currentAccount).getLong("dialog_join_requested_time_" + dialogId, -1);
+                    if (!(requestedTime > 0 && System.currentTimeMillis() - requestedTime < 1000 * 60 * 2)) {
+                        joinRow = rowCount++;
+                        lastSectionRow = rowCount++;
+                    }
+                }
+            } else if (chatInfo != null) {
+                if (!isTopic && chatInfo.participants != null && chatInfo.participants.participants != null && !(chatInfo.participants instanceof TLRPC.TL_chatParticipantsForbidden)) {
+                    if (ChatObject.canAddUsers(currentChat) || currentChat.default_banned_rights == null || !currentChat.default_banned_rights.invite_users) {
+                        addMemberRow = rowCount++;
+                    }
+                    int count = chatInfo.participants.participants.size();
+                    if (count <= 5 || !hasMedia) {
+                        if (addMemberRow == -1) {
+                            membersHeaderRow = rowCount++;
+                        }
+                        membersStartRow = rowCount;
+                        rowCount += chatInfo.participants.participants.size();
+                        membersEndRow = rowCount;
+                        membersSectionRow = rowCount++;
+                        visibleChatParticipants.addAll(chatInfo.participants.participants);
+                        if (sortedUsers != null) {
+                            visibleSortedUsers.addAll(sortedUsers);
+                        }
+                        if (sharedMediaLayout != null) {
+                            sharedMediaLayout.setChatUsers(null, null);
+                        }
+                    } else {
+                        if (addMemberRow != -1) {
+                            membersSectionRow = rowCount++;
+                        }
+                        if (sharedMediaLayout != null) {
+                            sharedMediaLayout.setChatUsers(sortedUsers, chatInfo);
+                        }
+                    }
+                } else {
+                    if (!ChatObject.isNotInChat(currentChat) && ChatObject.canAddUsers(currentChat) && chatInfo.participants_hidden) {
+                        addMemberRow = rowCount++;
+                        membersSectionRow = rowCount++;
+                    }
+                    if (sharedMediaLayout != null) {
+                        sharedMediaLayout.updateAdapters();
+                    }
+                }
+            }
+
+            if (hasMedia) {
+                sharedMediaRow = rowCount++;
+            }
+        }
+        if (sharedMediaRow == -1) {
+            bottomPaddingRow = rowCount++;
+        }
+        final int actionBarHeight = actionBar != null ? ActionBar.getCurrentActionBarHeight() + (actionBar.getOccupyStatusBar() ? AndroidUtilities.statusBarHeight : 0) : 0;
+        if (listView == null || prevRowsCount > rowCount || listContentHeight != 0 && listContentHeight + actionBarHeight + AndroidUtilities.dp(88) < listView.getMeasuredHeight()) {
+            lastMeasuredContentWidth = 0;
+        }
+        if (listView != null) {
+            listView.setTranslateSelectorPosition(bizHoursRow);
+        }
     }
 
     private void needLayout() {
@@ -3282,6 +3990,161 @@ public class ProfileActivityV2 extends BaseFragment implements NotificationCente
                 return searchItem;
             } else {
                 return null;
+            }
+        }
+    }
+
+    private class DiffCallback extends DiffUtil.Callback {
+
+        int oldRowCount;
+
+        SparseIntArray oldPositionToItem = new SparseIntArray();
+        SparseIntArray newPositionToItem = new SparseIntArray();
+        ArrayList<TLRPC.ChatParticipant> oldChatParticipant = new ArrayList<>();
+        ArrayList<Integer> oldChatParticipantSorted = new ArrayList<>();
+        int oldMembersStartRow;
+        int oldMembersEndRow;
+
+        @Override
+        public int getOldListSize() {
+            return oldRowCount;
+        }
+
+        @Override
+        public int getNewListSize() {
+            return rowCount;
+        }
+
+        @Override
+        public boolean areItemsTheSame(int oldItemPosition, int newItemPosition) {
+            if (newItemPosition >= membersStartRow && newItemPosition < membersEndRow) {
+                if (oldItemPosition >= oldMembersStartRow && oldItemPosition < oldMembersEndRow) {
+                    TLRPC.ChatParticipant oldItem;
+                    TLRPC.ChatParticipant newItem;
+                    if (!oldChatParticipantSorted.isEmpty()) {
+                        oldItem = oldChatParticipant.get(oldChatParticipantSorted.get(oldItemPosition - oldMembersStartRow));
+                    } else {
+                        oldItem = oldChatParticipant.get(oldItemPosition - oldMembersStartRow);
+                    }
+
+                    if (!sortedUsers.isEmpty()) {
+                        newItem = visibleChatParticipants.get(visibleSortedUsers.get(newItemPosition - membersStartRow));
+                    } else {
+                        newItem = visibleChatParticipants.get(newItemPosition - membersStartRow);
+                    }
+                    return oldItem.user_id == newItem.user_id;
+                }
+            }
+            int oldIndex = oldPositionToItem.get(oldItemPosition, -1);
+            int newIndex = newPositionToItem.get(newItemPosition, -1);
+            return oldIndex == newIndex && oldIndex >= 0;
+        }
+
+        @Override
+        public boolean areContentsTheSame(int oldItemPosition, int newItemPosition) {
+            return areItemsTheSame(oldItemPosition, newItemPosition);
+        }
+
+        public void fillPositions(SparseIntArray sparseIntArray) {
+            sparseIntArray.clear();
+            int pointer = 0;
+            put(++pointer, setAvatarRow, sparseIntArray);
+            put(++pointer, setAvatarSectionRow, sparseIntArray);
+            put(++pointer, numberSectionRow, sparseIntArray);
+            put(++pointer, numberRow, sparseIntArray);
+            put(++pointer, setUsernameRow, sparseIntArray);
+            put(++pointer, bioRow, sparseIntArray);
+            put(++pointer, phoneSuggestionRow, sparseIntArray);
+            put(++pointer, phoneSuggestionSectionRow, sparseIntArray);
+            put(++pointer, passwordSuggestionRow, sparseIntArray);
+            put(++pointer, passwordSuggestionSectionRow, sparseIntArray);
+            put(++pointer, graceSuggestionRow, sparseIntArray);
+            put(++pointer, graceSuggestionSectionRow, sparseIntArray);
+            put(++pointer, settingsSectionRow, sparseIntArray);
+            put(++pointer, settingsSectionRow2, sparseIntArray);
+            put(++pointer, notificationRow, sparseIntArray);
+            put(++pointer, languageRow, sparseIntArray);
+            put(++pointer, premiumRow, sparseIntArray);
+            put(++pointer, starsRow, sparseIntArray);
+            put(++pointer, businessRow, sparseIntArray);
+            put(++pointer, premiumSectionsRow, sparseIntArray);
+            put(++pointer, premiumGiftingRow, sparseIntArray);
+            put(++pointer, privacyRow, sparseIntArray);
+            put(++pointer, dataRow, sparseIntArray);
+            put(++pointer, liteModeRow, sparseIntArray);
+            put(++pointer, chatRow, sparseIntArray);
+            put(++pointer, filtersRow, sparseIntArray);
+            put(++pointer, stickersRow, sparseIntArray);
+            put(++pointer, devicesRow, sparseIntArray);
+            put(++pointer, devicesSectionRow, sparseIntArray);
+            put(++pointer, helpHeaderRow, sparseIntArray);
+            put(++pointer, questionRow, sparseIntArray);
+            put(++pointer, faqRow, sparseIntArray);
+            put(++pointer, policyRow, sparseIntArray);
+            put(++pointer, helpSectionCell, sparseIntArray);
+            put(++pointer, debugHeaderRow, sparseIntArray);
+            put(++pointer, sendLogsRow, sparseIntArray);
+            put(++pointer, sendLastLogsRow, sparseIntArray);
+            put(++pointer, clearLogsRow, sparseIntArray);
+            put(++pointer, switchBackendRow, sparseIntArray);
+            put(++pointer, versionRow, sparseIntArray);
+            put(++pointer, emptyRow, sparseIntArray);
+            put(++pointer, bottomPaddingRow, sparseIntArray);
+            put(++pointer, infoHeaderRow, sparseIntArray);
+            put(++pointer, phoneRow, sparseIntArray);
+            put(++pointer, locationRow, sparseIntArray);
+            put(++pointer, userInfoRow, sparseIntArray);
+            put(++pointer, channelInfoRow, sparseIntArray);
+            put(++pointer, usernameRow, sparseIntArray);
+            put(++pointer, notificationsDividerRow, sparseIntArray);
+            put(++pointer, reportDividerRow, sparseIntArray);
+            put(++pointer, notificationsRow, sparseIntArray);
+            put(++pointer, infoSectionRow, sparseIntArray);
+            put(++pointer, affiliateRow, sparseIntArray);
+            put(++pointer, infoAffiliateRow, sparseIntArray);
+            put(++pointer, sendMessageRow, sparseIntArray);
+            put(++pointer, reportRow, sparseIntArray);
+            put(++pointer, reportReactionRow, sparseIntArray);
+            put(++pointer, addToContactsRow, sparseIntArray);
+            put(++pointer, settingsTimerRow, sparseIntArray);
+            put(++pointer, settingsKeyRow, sparseIntArray);
+            put(++pointer, secretSettingsSectionRow, sparseIntArray);
+            put(++pointer, membersHeaderRow, sparseIntArray);
+            put(++pointer, addMemberRow, sparseIntArray);
+            put(++pointer, subscribersRow, sparseIntArray);
+            put(++pointer, subscribersRequestsRow, sparseIntArray);
+            put(++pointer, administratorsRow, sparseIntArray);
+            put(++pointer, settingsRow, sparseIntArray);
+            put(++pointer, blockedUsersRow, sparseIntArray);
+            put(++pointer, membersSectionRow, sparseIntArray);
+            put(++pointer, channelBalanceSectionRow, sparseIntArray);
+            put(++pointer, sharedMediaRow, sparseIntArray);
+            put(++pointer, unblockRow, sparseIntArray);
+            put(++pointer, addToGroupButtonRow, sparseIntArray);
+            put(++pointer, addToGroupInfoRow, sparseIntArray);
+            put(++pointer, joinRow, sparseIntArray);
+            put(++pointer, lastSectionRow, sparseIntArray);
+            put(++pointer, notificationsSimpleRow, sparseIntArray);
+            put(++pointer, bizHoursRow, sparseIntArray);
+            put(++pointer, bizLocationRow, sparseIntArray);
+            put(++pointer, birthdayRow, sparseIntArray);
+            put(++pointer, channelRow, sparseIntArray);
+            put(++pointer, botStarsBalanceRow, sparseIntArray);
+            put(++pointer, botTonBalanceRow, sparseIntArray);
+            put(++pointer, channelBalanceRow, sparseIntArray);
+            put(++pointer, balanceDividerRow, sparseIntArray);
+            put(++pointer, botAppRow, sparseIntArray);
+            put(++pointer, botPermissionsHeader, sparseIntArray);
+            put(++pointer, botPermissionLocation, sparseIntArray);
+            put(++pointer, botPermissionEmojiStatus, sparseIntArray);
+            put(++pointer, botPermissionBiometry, sparseIntArray);
+            put(++pointer, botPermissionsDivider, sparseIntArray);
+            put(++pointer, channelDividerRow, sparseIntArray);
+        }
+
+        private void put(int id, int position, SparseIntArray sparseIntArray) {
+            if (position >= 0) {
+                sparseIntArray.put(position, id);
             }
         }
     }
