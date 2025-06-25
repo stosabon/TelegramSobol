@@ -507,12 +507,12 @@ public class ProfileActivityV2 extends BaseFragment implements NotificationCente
         frameLayout.addView(topView);
         contentView.blurBehindViews.add(topView);
 
+        initListView(context);
+        frameLayout.addView(listView);
+
         topContentView = new FrameLayout(context);
         initMenu();
         frameLayout.addView(topContentView);
-
-        initListView(context);
-        frameLayout.addView(listView);
 
         if (avatarsViewPager != null) {
             avatarsViewPager.onDestroy();
@@ -1745,6 +1745,13 @@ public class ProfileActivityV2 extends BaseFragment implements NotificationCente
         ViewGroup.LayoutParams params = avatarsViewPager.getLayoutParams();
         params.width = listView.getMeasuredWidth();
         params.height = (int) (extraHeight + actionBarHeight);
+
+        if (isPulledDown || (overlaysView != null && overlaysView.animator != null && overlaysView.animator.isRunning())) {
+            final ViewGroup.LayoutParams overlaysLp = overlaysView.getLayoutParams();
+            overlaysLp.width = listView.getMeasuredWidth();
+            overlaysLp.height = (int) (extraHeight + actionBarHeight - actionsContainer.getMeasuredHeight() - AndroidUtilities.dp(16));
+        }
+        listView.setOverScrollMode(isPulledDown ? View.OVER_SCROLL_NEVER : View.OVER_SCROLL_ALWAYS);
         topContentView.requestLayout();
     }
 
