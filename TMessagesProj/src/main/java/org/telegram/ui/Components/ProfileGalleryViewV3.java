@@ -37,7 +37,7 @@ import org.telegram.tgnet.ConnectionsManager;
 import org.telegram.tgnet.TLRPC;
 import org.telegram.ui.ActionBar.ActionBar;
 import org.telegram.ui.PinchToZoomHelper;
-import org.telegram.ui.ProfileActivity;
+import org.telegram.ui.ProfileActivityV3;
 
 import java.util.ArrayList;
 
@@ -265,7 +265,7 @@ public class ProfileGalleryViewV3 extends CircularViewPager implements Notificat
         imagesLayerNum = value;
     }
 
-    public ProfileGalleryViewV3(Context context, long dialogId, ActionBar parentActionBar, RecyclerListView parentListView, ProfileActivity.AvatarImageView parentAvatarImageView, int parentClassGuid, Callback callback) {
+    public ProfileGalleryViewV3(Context context, long dialogId, ActionBar parentActionBar, RecyclerListView parentListView, ProfileActivityV3.AvatarImageView parentAvatarImageView, int parentClassGuid, Callback callback) {
         super(context);
         setVisibility(View.GONE);
         setOverScrollMode(View.OVER_SCROLL_NEVER);
@@ -1090,7 +1090,7 @@ public class ProfileGalleryViewV3 extends CircularViewPager implements Notificat
         private BackupImageView parentAvatarImageView;
         private final ActionBar parentActionBar;
 
-        public ViewPagerAdapter(Context context, ProfileActivity.AvatarImageView parentAvatarImageView, ActionBar parentActionBar) {
+        public ViewPagerAdapter(Context context, ProfileActivityV3.AvatarImageView parentAvatarImageView, ActionBar parentActionBar) {
             this.context = context;
             this.parentAvatarImageView = parentAvatarImageView;
             this.parentActionBar = parentActionBar;
