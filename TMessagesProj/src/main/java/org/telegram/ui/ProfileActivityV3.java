@@ -97,6 +97,7 @@ import org.telegram.ui.Components.ImageUpdater;
 import org.telegram.ui.Components.LayoutHelper;
 import org.telegram.ui.Components.Premium.PremiumGradient;
 import org.telegram.ui.Components.Premium.ProfilePremiumCell;
+import org.telegram.ui.Components.ProfileGalleryView;
 import org.telegram.ui.Components.RLottieDrawable;
 import org.telegram.ui.Components.RecyclerListView;
 import org.telegram.ui.Components.SharedMediaLayout;
@@ -130,6 +131,8 @@ public class ProfileActivityV3 extends BaseFragment implements SharedMediaLayout
 
     private Theme.ResourcesProvider resourcesProvider;
 
+    private ProfileGalleryView avatarsViewPager;
+
     private SharedMediaLayout.SharedMediaPreloader sharedMediaPreloader;
     public SharedMediaLayout sharedMediaLayout;
     private boolean sharedMediaLayoutAttached;
@@ -138,6 +141,10 @@ public class ProfileActivityV3 extends BaseFragment implements SharedMediaLayout
     private ListAdapter listAdapter;
     private RecyclerListView listView;
 
+    private boolean isInLandscapeMode; // TODO check set
+    private boolean allowPullingDown;
+    private boolean isPulledDown; // TODO check set
+    private boolean openingAvatar; // TODO check set
     int savedScrollPosition = -1;
     int savedScrollOffset;
     boolean savedScrollToSharedMedia;
@@ -263,6 +270,9 @@ public class ProfileActivityV3 extends BaseFragment implements SharedMediaLayout
     public boolean openCommonChats;
     public boolean openGifts;
     public boolean saved;
+    private boolean expandPhoto;
+    private boolean needSendMessage;
+    private float currentExpandAnimatorValue;
     private boolean userBlocked;
     private int onlineCount = -1;
     private int usersForceShowingIn = 0;
@@ -271,6 +281,8 @@ public class ProfileActivityV3 extends BaseFragment implements SharedMediaLayout
     public boolean myProfile;
     private boolean isBot;
     private long reportReactionFromDialogId = 0;
+    private boolean showAddToContacts;
+    private int reportReactionMessageId = 0;
     private String vcardPhone;
     private boolean isFragmentPhoneNumber;
     private String vcardFirstName;
@@ -284,6 +296,7 @@ public class ProfileActivityV3 extends BaseFragment implements SharedMediaLayout
     private TLRPC.ChatFull chatInfo;
     private TLRPC.Chat currentChat;
     private TLRPC.EncryptedChat currentEncryptedChat;
+    private TLRPC.FileLocation avatarBig;
     private ArrayList<Integer> sortedUsers;
 
     public ProfileActivityV3(Bundle args) {
@@ -314,13 +327,22 @@ public class ProfileActivityV3 extends BaseFragment implements SharedMediaLayout
         saved = arguments.getBoolean("saved", false);
         openSimilar = arguments.getBoolean("similar", false);
         isTopic = topicId != 0;
+        reportReactionMessageId = arguments.getInt("report_reaction_message_id", 0);
         reportReactionFromDialogId = arguments.getLong("report_reaction_from_dialog_id", 0);
+        showAddToContacts = arguments.getBoolean("show_add_to_contacts", true);
         vcardPhone = PhoneFormat.stripExceptNumbers(arguments.getString("vcard_phone"));
         vcardFirstName = arguments.getString("vcard_first_name");
         vcardLastName = arguments.getString("vcard_last_name");
         myProfile = arguments.getBoolean("my_profile", false);
         openGifts = arguments.getBoolean("open_gifts", false);
         openCommonChats = arguments.getBoolean("open_common", false);
+        if (!expandPhoto) {
+            expandPhoto = arguments.getBoolean("expandPhoto", false);
+            if (expandPhoto) {
+                currentExpandAnimatorValue = 1f;
+                needSendMessage = true;
+            }
+        }
         if (userId != 0) {
             dialogId = arguments.getLong("dialog_id", 0);
             if (dialogId != 0) {
@@ -466,7 +488,37 @@ public class ProfileActivityV3 extends BaseFragment implements SharedMediaLayout
 
     private void initListView(Context context) {
         listAdapter = new ListAdapter(context);
-        layoutManager = new LinearLayoutManager(context);
+        layoutManager = new LinearLayoutManager(context) {
+
+            @Override
+            public boolean supportsPredictiveItemAnimations() {
+                return imageUpdater != null;
+            }
+
+            @Override
+            public int scrollVerticallyBy(int dy, RecyclerView.Recycler recycler, RecyclerView.State state) {
+                final View view = layoutManager.findViewByPosition(0);
+                if (view != null && !openingAvatar) {
+                    final int canScroll = view.getTop() - AndroidUtilities.dp(88);
+                    if (!allowPullingDown && canScroll > dy) {
+                        dy = canScroll;
+                        if (avatarsViewPager.hasImages() && avatarImage.getImageReceiver().hasNotThumb() && !AndroidUtilities.isAccessibilityScreenReaderEnabled() && !isInLandscapeMode && !AndroidUtilities.isTablet()) {
+                            allowPullingDown = avatarBig == null;
+                        }
+                    } else if (allowPullingDown) {
+                        if (dy >= canScroll) {
+                            dy = canScroll;
+                            allowPullingDown = false;
+                        } else if (listView.getScrollState() == RecyclerListView.SCROLL_STATE_DRAGGING) {
+                            if (!isPulledDown) {
+                                dy /= 2;
+                            }
+                        }
+                    }
+                }
+                return super.scrollVerticallyBy(dy, recycler, state);
+            }
+        };
         layoutManager.setOrientation(LinearLayoutManager.VERTICAL);
         listView = new RecyclerListView(context);
         listView.setAdapter(listAdapter);
@@ -2589,9 +2641,10 @@ public class ProfileActivityV3 extends BaseFragment implements SharedMediaLayout
             bottomPaddingRow = rowCount++;
         }
         final int actionBarHeight = actionBar != null ? ActionBar.getCurrentActionBarHeight() + (actionBar.getOccupyStatusBar() ? AndroidUtilities.statusBarHeight : 0) : 0;
-        if (listView == null || prevRowsCount > rowCount || listContentHeight != 0 && listContentHeight + actionBarHeight + AndroidUtilities.dp(88) < listView.getMeasuredHeight()) {
-            lastMeasuredContentWidth = 0;
-        }
+        // TODO double check if needed + 88 check
+        //if (listView == null || prevRowsCount > rowCount || listContentHeight != 0 && listContentHeight + actionBarHeight + AndroidUtilities.dp(88) < listView.getMeasuredHeight()) {
+        //    lastMeasuredContentWidth = 0;
+        //}
         if (listView != null) {
             listView.setTranslateSelectorPosition(bizHoursRow);
         }
