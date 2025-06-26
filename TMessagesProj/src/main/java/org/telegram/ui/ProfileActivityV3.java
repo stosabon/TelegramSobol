@@ -28,6 +28,8 @@ import android.graphics.RectF;
 import android.graphics.Shader;
 import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.Drawable;
+import android.graphics.drawable.GradientDrawable;
+import android.graphics.drawable.StateListDrawable;
 import android.os.Build;
 import android.os.Bundle;
 import android.text.SpannableString;
@@ -52,6 +54,7 @@ import android.view.ViewGroup;
 import android.view.accessibility.AccessibilityNodeInfo;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
+import android.widget.LinearLayout;
 import android.widget.TextView;
 
 import androidx.annotation.Keep;
@@ -100,6 +103,7 @@ import org.telegram.tgnet.tl.TL_account;
 import org.telegram.tgnet.tl.TL_bots;
 import org.telegram.tgnet.tl.TL_fragment;
 import org.telegram.tgnet.tl.TL_stars;
+import org.telegram.tgnet.tl.TL_stories;
 import org.telegram.ui.ActionBar.ActionBar;
 import org.telegram.ui.ActionBar.ActionBarMenu;
 import org.telegram.ui.ActionBar.ActionBarMenuItem;
@@ -134,12 +138,14 @@ import org.telegram.ui.Components.Bulletin;
 import org.telegram.ui.Components.BulletinFactory;
 import org.telegram.ui.Components.CanvasButton;
 import org.telegram.ui.Components.ChatActivityInterface;
+import org.telegram.ui.Components.ColoredImageSpan;
 import org.telegram.ui.Components.CubicBezierInterpolator;
 import org.telegram.ui.Components.EmojiPacksAlert;
 import org.telegram.ui.Components.FragmentContextView;
 import org.telegram.ui.Components.IdenticonDrawable;
 import org.telegram.ui.Components.ImageUpdater;
 import org.telegram.ui.Components.LayoutHelper;
+import org.telegram.ui.Components.Premium.PremiumFeatureBottomSheet;
 import org.telegram.ui.Components.Premium.PremiumGradient;
 import org.telegram.ui.Components.Premium.ProfilePremiumCell;
 import org.telegram.ui.Components.ProfileGalleryViewV3;
@@ -194,6 +200,9 @@ public class ProfileActivityV3 extends BaseFragment implements SharedMediaLayout
     private AvatarImageView avatarImage;
     private FrameLayout bottomButtonsContainer;
     private FrameLayout[] bottomButtonContainer;
+    private SpannableStringBuilder bottomButtonPostText;
+    private ButtonWithCounterView[] bottomButton;
+    private Runnable applyBulletin;
     private ImageView ttlIconView;
     private boolean openAnimationInProgress;
     private boolean isInLandscapeMode; // TODO check set
@@ -340,6 +349,7 @@ public class ProfileActivityV3 extends BaseFragment implements SharedMediaLayout
     public boolean saved;
     private boolean expandPhoto;
     private boolean needSendMessage;
+    private ValueAnimator expandAnimator;
     private float currentExpandAnimatorValue;
     private boolean userBlocked;
     private int onlineCount = -1;
@@ -757,6 +767,10 @@ public class ProfileActivityV3 extends BaseFragment implements SharedMediaLayout
         hasOwnBackground = true;
         extraHeight = middleHeight;
 
+        if (sharedMediaLayout != null) {
+            sharedMediaLayout.onDestroy();
+        }
+
         fragmentView = new NestedFrameLayout(context) {
             @Override
             protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
@@ -910,6 +924,128 @@ public class ProfileActivityV3 extends BaseFragment implements SharedMediaLayout
                 //}
             }
         };
+
+        if (myProfile) {
+            bottomButtonsContainer = new FrameLayout(context);
+
+            bottomButtonContainer = new FrameLayout[2];
+            bottomButton = new ButtonWithCounterView[2];
+            for (int a = 0; a < 2; ++a) {
+                bottomButtonContainer[a] = new FrameLayout(context);
+                bottomButtonContainer[a].setBackgroundColor(getThemedColor(Theme.key_windowBackgroundWhite));
+
+                View shadow = new View(context);
+                shadow.setBackgroundColor(getThemedColor(Theme.key_windowBackgroundGray));
+                bottomButtonContainer[a].addView(shadow, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, 1 / AndroidUtilities.density, Gravity.TOP | Gravity.FILL_HORIZONTAL));
+
+                bottomButton[a] = new ButtonWithCounterView(context, resourcesProvider);
+                if (a == 0) {
+                    bottomButtonPostText = new SpannableStringBuilder("c");
+                    bottomButtonPostText.setSpan(new ColoredImageSpan(R.drawable.filled_premium_camera), 0, 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+                    bottomButtonPostText.append("  ").append(getString(R.string.StoriesAddPost));
+                    bottomButton[a].setText(bottomButtonPostText, false);
+                } else {
+                    bottomButton[a].setText(getString(R.string.StorySave), false);
+                }
+                final int finalA = a;
+                bottomButton[a].setOnClickListener(v -> {
+                    if (finalA == 0 && !sharedMediaLayout.isActionModeShown()) {
+                        if (!getMessagesController().storiesEnabled()) {
+                            showDialog(new PremiumFeatureBottomSheet(this, PremiumPreviewFragment.PREMIUM_FEATURE_STORIES, true));
+                            return;
+                        }
+                        getMessagesController().getMainSettings().edit().putBoolean("story_keep", true).apply();
+                        StoryRecorder.getInstance(getParentActivity(), getCurrentAccount())
+                                .closeToWhenSent(new StoryRecorder.ClosingViewProvider() {
+                                    @Override
+                                    public void preLayout(long dialogId, Runnable runnable) {
+                                        avatarImage.setHasStories(needInsetForStories());
+                                        if (dialogId == getDialogId()) {
+                                            collapseAvatarInstant();
+                                        }
+                                        AndroidUtilities.runOnUIThread(runnable, 30);
+                                    }
+
+                                    @Override
+                                    public StoryRecorder.SourceView getView(long dialogId) {
+                                        if (dialogId != getDialogId()) {
+                                            return null;
+                                        }
+                                        updateAvatarRoundRadius();
+                                        return StoryRecorder.SourceView.fromAvatarImage(avatarImage, ChatObject.isForum(currentChat));
+                                    }
+                                })
+                                .open(null);
+                    } else {
+                        final long dialogId = getUserConfig().getClientUserId();
+                        if (applyBulletin != null) {
+                            applyBulletin.run();
+                            applyBulletin = null;
+                        }
+                        Bulletin.hideVisible();
+                        boolean pin = sharedMediaLayout.getClosestTab() == SharedMediaLayout.TAB_ARCHIVED_STORIES;
+                        int count = 0;
+                        ArrayList<TL_stories.StoryItem> storyItems = new ArrayList<>();
+                        SparseArray<MessageObject> actionModeMessageObjects = sharedMediaLayout.getActionModeSelected();
+                        if (actionModeMessageObjects != null) {
+                            for (int i = 0; i < actionModeMessageObjects.size(); ++i) {
+                                MessageObject messageObject = actionModeMessageObjects.valueAt(i);
+                                if (messageObject.storyItem != null) {
+                                    storyItems.add(messageObject.storyItem);
+                                    count++;
+                                }
+                            }
+                        }
+                        sharedMediaLayout.closeActionMode(false);
+                        if (pin) {
+                            sharedMediaLayout.scrollToPage(SharedMediaLayout.TAB_STORIES);
+                        }
+                        if (storyItems.isEmpty()) {
+                            return;
+                        }
+                        boolean[] pastValues = new boolean[storyItems.size()];
+                        for (int i = 0; i < storyItems.size(); ++i) {
+                            TL_stories.StoryItem storyItem = storyItems.get(i);
+                            pastValues[i] = storyItem.pinned;
+                            storyItem.pinned = pin;
+                        }
+                        getMessagesController().getStoriesController().updateStoriesInLists(dialogId, storyItems);
+                        final boolean[] undone = new boolean[] { false };
+                        applyBulletin = () -> {
+                            getMessagesController().getStoriesController().updateStoriesPinned(dialogId, storyItems, pin, null);
+                        };
+                        final Runnable undo = () -> {
+                            undone[0] = true;
+                            AndroidUtilities.cancelRunOnUIThread(applyBulletin);
+                            for (int i = 0; i < storyItems.size(); ++i) {
+                                TL_stories.StoryItem storyItem = storyItems.get(i);
+                                storyItem.pinned = pastValues[i];
+                            }
+                            getMessagesController().getStoriesController().updateStoriesInLists(dialogId, storyItems);
+                        };
+                        Bulletin bulletin;
+                        if (pin) {
+                            bulletin = BulletinFactory.of(this).createSimpleBulletin(R.raw.contact_check, LocaleController.formatPluralString("StorySavedTitle", count), LocaleController.getString(R.string.StorySavedSubtitle), LocaleController.getString(R.string.Undo), undo).show();
+                        } else {
+                            bulletin = BulletinFactory.of(this).createSimpleBulletin(R.raw.chats_archived, LocaleController.formatPluralString("StoryArchived", count), LocaleController.getString(R.string.Undo), Bulletin.DURATION_PROLONG, undo).show();
+                        }
+                        bulletin.setOnHideListener(() -> {
+                            if (!undone[0] && applyBulletin != null) {
+                                applyBulletin.run();
+                            }
+                            applyBulletin = null;
+                        });
+                    }
+                });
+                bottomButtonContainer[a].addView(bottomButton[a], LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, 48, Gravity.BOTTOM | Gravity.FILL_HORIZONTAL, 12, 12, 12, 12));
+
+                bottomButtonsContainer.addView(bottomButtonContainer[a], LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT, Gravity.BOTTOM | Gravity.FILL_HORIZONTAL));
+                if (a == 1 || !getMessagesController().storiesEnabled()) {
+                    bottomButtonContainer[a].setTranslationY(dp(72));
+                }
+            }
+        }
+
         fragmentView.setWillNotDraw(false);
         contentView = ((NestedFrameLayout) fragmentView);
         FrameLayout frameLayout = (FrameLayout) fragmentView;
@@ -1289,11 +1425,11 @@ public class ProfileActivityV3 extends BaseFragment implements SharedMediaLayout
         }
 
         if (avatarContainer != null) {
-            final float diff = Math.min(1f, extraHeight / AndroidUtilities.dp(88f));
+            final float diff = Math.min(1f, extraHeight / middleHeight);
 
             listView.setTopGlowOffset((int) extraHeight);
 
-            listView.setOverScrollMode(extraHeight > AndroidUtilities.dp(88f) && extraHeight < listView.getMeasuredWidth() - newTop ? View.OVER_SCROLL_NEVER : View.OVER_SCROLL_ALWAYS);
+            listView.setOverScrollMode(extraHeight > middleHeight && extraHeight < listView.getMeasuredWidth() - newTop ? View.OVER_SCROLL_NEVER : View.OVER_SCROLL_ALWAYS);
         }
     }
 
@@ -4336,5 +4472,143 @@ public class ProfileActivityV3 extends BaseFragment implements SharedMediaLayout
             }
             avatarImage.setForegroundImage(location, filter, drawable);
         }
+    }
+
+    private class ActionsContainer extends ViewGroup {
+
+        public ActionsContainer(Context context) {
+            super(context);
+        }
+
+        @Override
+        protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
+            int childCount = getChildCount();
+            if (childCount == 0) {
+                super.onMeasure(widthMeasureSpec, heightMeasureSpec);
+                return;
+            }
+
+            int totalWidth = MeasureSpec.getSize(widthMeasureSpec);
+            int height = MeasureSpec.getSize(heightMeasureSpec);
+            int horizontalPadding = getPaddingLeft() + getPaddingRight();
+            int availableWidth = totalWidth - horizontalPadding;
+            int childWidth = availableWidth / childCount;
+
+            for (int i = 0; i < childCount; i++) {
+                View child = getChildAt(i);
+                if (child.getVisibility() == GONE) continue;
+                measureChild(
+                        child,
+                        MeasureSpec.makeMeasureSpec(childWidth, MeasureSpec.EXACTLY),
+                        MeasureSpec.makeMeasureSpec(height, MeasureSpec.EXACTLY)
+                );
+            }
+
+            setMeasuredDimension(MeasureSpec.getSize(widthMeasureSpec), MeasureSpec.getSize(heightMeasureSpec));
+        }
+
+        @Override
+        protected void onLayout(boolean changed, int l, int t, int r, int b) {
+            int childCount = getChildCount();
+            if (childCount == 0) return;
+
+            int x = 0;
+
+            int totalWidth = r - l;
+            int itemSpace = AndroidUtilities.dp(8f);
+            int horizontalPadding = (childCount - 1) * itemSpace;
+            int availableWidth = totalWidth - horizontalPadding;
+            int childWidth = availableWidth / childCount;
+
+            for (int i = 0; i < childCount; i++) {
+                View child = getChildAt(i);
+                if (child.getVisibility() == GONE) continue;
+                int childLeft = x;
+                int childRight = childLeft + childWidth;
+
+                child.layout(childLeft, 0, childRight, getMeasuredHeight());
+                x += childWidth + itemSpace;
+            }
+        }
+
+        public void addAction(int iconResId, String text, View.OnClickListener clickListener) {
+            View actionView = createActionView(iconResId, text, clickListener);
+            addView(actionView);
+        }
+
+        private View createActionView(int drawableResId, String text, View.OnClickListener clickListener) {
+            Context context = getContext();
+            LinearLayout container = new LinearLayout(context);
+            container.setLayoutParams(new LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.MATCH_PARENT));
+            container.setOrientation(LinearLayout.VERTICAL);
+            container.setGravity(Gravity.CENTER);
+            container.setClickable(true);
+            container.setOnClickListener(clickListener);
+
+            ImageView icon = new ImageView(context);
+            icon.setImageDrawable(ContextCompat.getDrawable(context, drawableResId));
+
+            TextView label = new TextView(context);
+            label.setText(text);
+            label.setGravity(Gravity.CENTER);
+            label.setTextSize(14);
+            label.setTextColor(getThemedColor(Theme.key_actionBarDefaultIcon));
+            GradientDrawable background = new GradientDrawable();
+            background.setShape(GradientDrawable.RECTANGLE);
+            background.setColor(Color.argb(38, 0, 0, 0));
+            background.setCornerRadius(AndroidUtilities.dp(12f));
+
+            StateListDrawable stateListDrawable = new StateListDrawable();
+
+            GradientDrawable pressedDrawable = new GradientDrawable();
+            pressedDrawable.setShape(GradientDrawable.RECTANGLE);
+            pressedDrawable.setColor(Color.argb(76, 0, 0, 0));
+            pressedDrawable.setCornerRadius(AndroidUtilities.dp(12f));
+
+            GradientDrawable defaultDrawable = new GradientDrawable();
+            defaultDrawable.setShape(GradientDrawable.RECTANGLE);
+            defaultDrawable.setColor(Color.argb(38, 0, 0, 0));
+            defaultDrawable.setCornerRadius(AndroidUtilities.dp(12f));
+
+            stateListDrawable.addState(new int[]{android.R.attr.state_pressed}, pressedDrawable);
+            stateListDrawable.addState(new int[]{}, defaultDrawable);
+
+            container.setBackground(stateListDrawable);
+
+            container.addView(icon, new LinearLayout.LayoutParams(
+                    LayoutParams.WRAP_CONTENT,
+                    LayoutParams.WRAP_CONTENT
+            ));
+
+            container.addView(label, new LinearLayout.LayoutParams(
+                    LayoutParams.WRAP_CONTENT,
+                    LayoutParams.WRAP_CONTENT
+            ));
+
+            return container;
+        }
+    }
+
+    /** READY */
+    private void collapseAvatarInstant() {
+        if (allowPullingDown && currentExpandAnimatorValue > 0) {
+            layoutManager.scrollToPositionWithOffset(0, (int) middleHeight - listView.getPaddingTop());
+            listView.post(() -> {
+                needLayout(true);
+                if (expandAnimator.isRunning()) {
+                    expandAnimator.cancel();
+                }
+                setAvatarExpandProgress(1f);
+            });
+        }
+    }
+
+    /** READY */
+    private void updateAvatarRoundRadius() {
+        avatarImage.setRoundRadius((int) AndroidUtilities.lerp(getSmallAvatarRoundRadius(), 0f, currentExpandAnimatorValue));
+    }
+
+    private void setAvatarExpandProgress(float animatedFracture) {
+
     }
 }

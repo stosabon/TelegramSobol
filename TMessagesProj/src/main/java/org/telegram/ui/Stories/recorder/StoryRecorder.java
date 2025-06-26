@@ -151,6 +151,7 @@ import org.telegram.ui.Components.ZoomControlView;
 import org.telegram.ui.LaunchActivity;
 import org.telegram.ui.PremiumPreviewFragment;
 import org.telegram.ui.ProfileActivity;
+import org.telegram.ui.ProfileActivityV3;
 import org.telegram.ui.Stories.DarkThemeResourceProvider;
 import org.telegram.ui.Stories.DialogStoriesCell;
 import org.telegram.ui.Stories.PeerStoriesView;
@@ -268,6 +269,39 @@ public class StoryRecorder implements NotificationCenter.NotificationCenterDeleg
         protected void drawAbove(Canvas canvas, float alpha) {}
 
         public static SourceView fromAvatarImage(ProfileActivity.AvatarImageView avatarImage, boolean isForum) {
+            if (avatarImage == null || avatarImage.getRootView() == null) {
+                return null;
+            }
+            float scale = ((View)avatarImage.getParent()).getScaleX();
+            final float size = avatarImage.getImageReceiver().getImageWidth() * scale;
+            final float rounding = isForum ? size * 0.32f : size;
+            SourceView src = new SourceView() {
+                @Override
+                protected void show(boolean sent) {
+                    avatarImage.drawAvatar = true;
+                    avatarImage.invalidate();
+                }
+
+                @Override
+                protected void hide() {
+                    avatarImage.drawAvatar = false;
+                    avatarImage.invalidate();
+                }
+            };
+            final int[] loc = new int[2];
+            final float[] locPositon = new float[2];
+            avatarImage.getRootView().getLocationOnScreen(loc);
+            AndroidUtilities.getViewPositionInParent(avatarImage, (ViewGroup) avatarImage.getRootView(), locPositon);
+            final float x = loc[0] + locPositon[0] + avatarImage.getImageReceiver().getImageX() * scale;
+            final float y = loc[1] + locPositon[1] + avatarImage.getImageReceiver().getImageY() * scale;
+
+            src.screenRect.set(x, y, x + size, y + size);
+            src.backgroundImageReceiver = avatarImage.getImageReceiver();
+            src.rounding = rounding;
+            return src;
+        }
+
+        public static SourceView fromAvatarImage(ProfileActivityV3.AvatarImageView avatarImage, boolean isForum) {
             if (avatarImage == null || avatarImage.getRootView() == null) {
                 return null;
             }
