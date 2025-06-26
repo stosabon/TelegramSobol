@@ -196,6 +196,7 @@ import org.telegram.ui.Components.BulletinFactory;
 import org.telegram.ui.Components.ButtonBounce;
 import org.telegram.ui.Components.CanvasButton;
 import org.telegram.ui.Components.ChatActivityInterface;
+import org.telegram.ui.Components.ChatAvatarContainer;
 import org.telegram.ui.Components.ChatNotificationsPopupWrapper;
 import org.telegram.ui.Components.ColoredImageSpan;
 import org.telegram.ui.Components.CombinedDrawable;
@@ -310,6 +311,8 @@ public class ProfileActivityV3 extends BaseFragment implements SharedMediaLayout
     private AvatarImageView avatarImage;
     private ImageReceiver fallbackImage;
     private SimpleTextView[] nameTextView = new SimpleTextView[2];
+    private String nameTextViewRightDrawableContentDescription = null;
+    private String nameTextViewRightDrawable2ContentDescription = null;
     private float nameX;
     private float nameY;
     private SimpleTextView[] onlineTextView = new SimpleTextView[4];
@@ -3425,8 +3428,88 @@ public class ProfileActivityV3 extends BaseFragment implements SharedMediaLayout
             }
         };
 
+        if (userId != getUserConfig().clientUserId && userInfo != null) {
+            customAvatarProgress = userInfo.profile_photo == null ? 0 : 1;
+        }
+        if (!isTopic) {
+            avatarsViewPager.setChatInfo(chatInfo);
+        }
+        avatarContainer2.addView(avatarsViewPager);
+        avatarContainer2.addView(overlaysView);
+        avatarImage.setAvatarsViewPager(avatarsViewPager);
 
+        avatarsViewPagerIndicatorView = new PagerIndicatorView(context);
+        avatarContainer2.addView(avatarsViewPagerIndicatorView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT));
 
+        frameLayout.addView(actionBar);
+
+        float rightMargin = (54 + ((callItemVisible && userId != 0) ? 54 : 0));
+        boolean hasTitleExpanded = false;
+        int initialTitleWidth = LayoutHelper.WRAP_CONTENT;
+        if (parentLayout != null && parentLayout.getLastFragment() instanceof ChatActivity) {
+            ChatAvatarContainer avatarContainer = ((ChatActivity) parentLayout.getLastFragment()).getAvatarContainer();
+            if (avatarContainer != null) {
+                hasTitleExpanded = avatarContainer.getTitleTextView().getPaddingRight() != 0;
+                if (avatarContainer.getLayoutParams() != null && avatarContainer.getTitleTextView() != null) {
+                    rightMargin =
+                            (((ViewGroup.MarginLayoutParams) avatarContainer.getLayoutParams()).rightMargin +
+                                    (avatarContainer.getWidth() - avatarContainer.getTitleTextView().getRight())) / AndroidUtilities.density;
+                }
+            }
+        }
+
+        for (int a = 0; a < nameTextView.length; a++) {
+            if (playProfileAnimation == 0 && a == 0) {
+                continue;
+            }
+            nameTextView[a] = new SimpleTextView(context) {
+                @Override
+                public void onInitializeAccessibilityNodeInfo(AccessibilityNodeInfo info) {
+                    super.onInitializeAccessibilityNodeInfo(info);
+                    if (isFocusable() && (nameTextViewRightDrawableContentDescription != null || nameTextViewRightDrawable2ContentDescription != null)) {
+                        StringBuilder s = new StringBuilder(getText());
+                        if (nameTextViewRightDrawable2ContentDescription != null) {
+                            if (s.length() > 0) s.append(", ");
+                            s.append(nameTextViewRightDrawable2ContentDescription);
+                        }
+                        if (nameTextViewRightDrawableContentDescription != null) {
+                            if (s.length() > 0) s.append(", ");
+                            s.append(nameTextViewRightDrawableContentDescription);
+                        }
+                        info.setText(s);
+                    }
+                }
+                @Override
+                protected void onDraw(Canvas canvas) {
+                    final int wasRightDrawableX = getRightDrawableX();
+                    super.onDraw(canvas);
+                    if (wasRightDrawableX != getRightDrawableX()) {
+                        updateCollectibleHint();
+                    }
+                }
+            };
+            if (a == 1) {
+                nameTextView[a].setTextColor(getThemedColor(Theme.key_profile_title));
+            } else {
+                nameTextView[a].setTextColor(getThemedColor(Theme.key_actionBarDefaultTitle));
+            }
+            nameTextView[a].setPadding(0, AndroidUtilities.dp(6), 0, AndroidUtilities.dp(a == 0 ? 12 : 4));
+            nameTextView[a].setTextSize(18);
+            nameTextView[a].setGravity(Gravity.LEFT);
+            nameTextView[a].setTypeface(AndroidUtilities.bold());
+            nameTextView[a].setLeftDrawableTopPadding(-AndroidUtilities.dp(1.3f));
+            nameTextView[a].setPivotX(0);
+            nameTextView[a].setPivotY(0);
+            nameTextView[a].setAlpha(a == 0 ? 0.0f : 1.0f);
+            if (a == 1) {
+                nameTextView[a].setScrollNonFitText(true);
+                nameTextView[a].setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+            }
+            nameTextView[a].setFocusable(a == 0);
+            nameTextView[a].setEllipsizeByGradient(true);
+            nameTextView[a].setRightDrawableOutside(a == 0);
+            avatarContainer2.addView(nameTextView[a], LayoutHelper.createFrame(a == 0 ? initialTitleWidth : LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT, Gravity.LEFT | Gravity.TOP, 118, -6, (a == 0 ? rightMargin - (hasTitleExpanded ? 10 : 0) : 0), 0));
+        }
 
         listView.setOnScrollListener(new RecyclerView.OnScrollListener() {
 
@@ -3440,15 +3523,7 @@ public class ProfileActivityV3 extends BaseFragment implements SharedMediaLayout
             }
         });
 
-
-        if (!isTopic) {
-            avatarsViewPager.setChatInfo(chatInfo);
-        }
-        avatarContainer2.addView(avatarsViewPager);
-        avatarImage.setAvatarsViewPager(avatarsViewPager);
         avatarImage.setHasStories(needInsetForStories());
-
-        frameLayout.addView(actionBar);
 
         undoView = new UndoView(context, null, false, resourcesProvider);
         frameLayout.addView(undoView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, Gravity.BOTTOM | Gravity.LEFT, 8, 0, 8, 8));
@@ -9963,7 +10038,7 @@ public class ProfileActivityV3 extends BaseFragment implements SharedMediaLayout
     public ShowDrawable getShowStatusButton() {
         if (showStatusButton == null) {
             showStatusButton = new ShowDrawable(LocaleController.getString(R.string.StatusHiddenShow));
-            showStatusButton.setAlpha((int) (0xFF * Math.min(1f, extraHeight / middleHeight));
+            showStatusButton.setAlpha((int) (0xFF * Math.min(1f, extraHeight / middleHeight)));
             showStatusButton.setBackgroundColor(ColorUtils.blendARGB(Theme.multAlpha(Theme.adaptHSV(actionBarBackgroundColor, +0.18f, -0.1f), 0.5f), 0x23ffffff, currentExpandAnimatorValue));
         }
         return showStatusButton;
