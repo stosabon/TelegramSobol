@@ -155,6 +155,7 @@ import org.telegram.ui.Components.EmojiPacksAlert;
 import org.telegram.ui.Components.FragmentContextView;
 import org.telegram.ui.Components.IdenticonDrawable;
 import org.telegram.ui.Components.ImageUpdater;
+import org.telegram.ui.Components.ItemOptions;
 import org.telegram.ui.Components.LayoutHelper;
 import org.telegram.ui.Components.MediaActivity;
 import org.telegram.ui.Components.Premium.PremiumFeatureBottomSheet;
@@ -207,6 +208,8 @@ public class ProfileActivityV3 extends BaseFragment implements SharedMediaLayout
 
     private SharedMediaLayout.SharedMediaPreloader sharedMediaPreloader;
     public SharedMediaLayout sharedMediaLayout;
+    private PinchToZoomHelper pinchToZoomHelper;
+
     private boolean sharedMediaLayoutAttached;
 
     private LinearLayoutManager layoutManager;
@@ -220,6 +223,7 @@ public class ProfileActivityV3 extends BaseFragment implements SharedMediaLayout
     private FrameLayout[] bottomButtonContainer;
     private SpannableStringBuilder bottomButtonPostText;
     private ButtonWithCounterView[] bottomButton;
+    FrameLayout floatingButtonContainer;
     private Runnable applyBulletin;
     private ImageView ttlIconView;
     private boolean openAnimationInProgress;
@@ -403,6 +407,7 @@ public class ProfileActivityV3 extends BaseFragment implements SharedMediaLayout
     private BotLocation botLocation;
     private BotBiometry botBiometry;
     private boolean usersEndReached;
+    private long selectedUser;
     private TLRPC.UserFull userInfo;
     private TLRPC.ChatFull chatInfo;
     private TL_bots.BotInfo botInfo;
@@ -467,6 +472,10 @@ public class ProfileActivityV3 extends BaseFragment implements SharedMediaLayout
     private final static int set_username = 43;
     private final static int bot_privacy = 44;
     private ActionBarMenuItem qrItem;
+    private ActionBarMenuItem editItem;
+    private ActionBarMenuItem otherItem;
+    private boolean editItemVisible;
+
 
     /** READY */
     private PhotoViewer.PhotoViewerProvider provider = new PhotoViewer.EmptyPhotoViewerProvider() {
@@ -826,7 +835,7 @@ public class ProfileActivityV3 extends BaseFragment implements SharedMediaLayout
 
     @Override
     public View createView(Context context) {
-        Log.e("STAS", "createView" + " sharedMediaLayout = " + sharedMediaLayout);
+        Log.e("STAS", "createView");
         Theme.createProfileResources(context);
         Theme.createChatResources(context, false);
         BaseFragment lastFragment = parentLayout.getLastFragment();
@@ -1365,7 +1374,7 @@ public class ProfileActivityV3 extends BaseFragment implements SharedMediaLayout
                             doNotSetForeground = true;
                             final View view = layoutManager.findViewByPosition(0);
                             if (view != null) {
-                                listView.smoothScrollBy(0, view.getTop() - AndroidUtilities.dp(88), CubicBezierInterpolator.EASE_OUT_QUINT);
+                                listView.smoothScrollBy(0, view.getTop() - (int) middleHeight, CubicBezierInterpolator.EASE_OUT_QUINT);
                             }
                         }
                     });
@@ -1393,6 +1402,7 @@ public class ProfileActivityV3 extends BaseFragment implements SharedMediaLayout
             sharedMediaLayout.onDestroy();
         }
 
+        // TODO not all logic migrated. Double check if it is needed
         fragmentView = new NestedFrameLayout(context) {
             @Override
             protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
@@ -1667,12 +1677,162 @@ public class ProfileActivityV3 extends BaseFragment implements SharedMediaLayout
                 }
             }
         }
+        final ArrayList<Integer> users = chatInfo != null && chatInfo.participants != null && chatInfo.participants.participants.size() > 5 ? sortedUsers : null;
+        int initialTab = -1;
+        if (openCommonChats) {
+            initialTab = SharedMediaLayout.TAB_COMMON_GROUPS;
+        } else if (openGifts && (userInfo != null && userInfo.stargifts_count > 0 || chatInfo != null && chatInfo.stargifts_count > 0)) {
+            initialTab = SharedMediaLayout.TAB_GIFTS;
+            openedGifts = true;
+        } else if (openSimilar) {
+            initialTab = SharedMediaLayout.TAB_RECOMMENDED_CHANNELS;
+        } else if (users != null) {
+            initialTab = SharedMediaLayout.TAB_GROUPUSERS;
+        }
+        sharedMediaLayout = new SharedMediaLayout(context, getDialogId(), sharedMediaPreloader, userInfo != null ? userInfo.common_chats_count : 0, sortedUsers, chatInfo, userInfo, initialTab, this, this, SharedMediaLayout.VIEW_TYPE_PROFILE_ACTIVITY, resourcesProvider) {
+            @Override
+            protected void onSelectedTabChanged() {
+                updateSelectedMediaTabText();
+            }
+            @Override
+            protected boolean includeSavedDialogs() {
+                return dialogId == getUserConfig().getClientUserId() && !saved;
+            }
+            @Override
+            protected boolean isSelf() {
+                return myProfile;
+            }
+
+            @Override
+            protected boolean isStoriesView() {
+                return myProfile;
+            }
+
+            @Override
+            protected void onSearchStateChanged(boolean expanded) {
+                AndroidUtilities.removeAdjustResize(getParentActivity(), classGuid);
+
+                listView.stopScroll();
+                avatarContainer2.setPivotY(avatarContainer.getPivotY() + avatarContainer.getMeasuredHeight() / 2f);
+                avatarContainer2.setPivotX(avatarContainer2.getMeasuredWidth() / 2f);
+                AndroidUtilities.updateViewVisibilityAnimated(avatarContainer2, !expanded, 0.95f, true);
+
+                editItem.setVisibility(expanded || !editItemVisible ? GONE : INVISIBLE);
+                otherItem.setVisibility(expanded ? GONE : INVISIBLE);
+                if (qrItem != null) {
+                    qrItem.setVisibility(expanded ? GONE : INVISIBLE);
+                }
+                updateStoriesViewBounds(false);
+            }
+
+            @Override
+            protected boolean onMemberClick(TLRPC.ChatParticipant participant, boolean isLong, View view) {
+                return ProfileActivityV3.this.onMemberClick(participant, isLong, view);
+            }
+
+            @Override
+            protected void drawBackgroundWithBlur(Canvas canvas, float y, Rect rectTmp2, Paint backgroundPaint) {
+                contentView.drawBlurRect(canvas, listView.getY() + getY() + y, rectTmp2, backgroundPaint, true);
+            }
+
+            @Override
+            protected void invalidateBlur() {
+                if (contentView != null) {
+                    contentView.invalidateBlur();
+                }
+            }
+
+            @Override
+            protected int getInitialTab() {
+                return TAB_STORIES;
+            }
+
+            @Override
+            protected void showActionMode(boolean show) {
+                super.showActionMode(show);
+                if (myProfile) {
+                    disableScroll(show);
+
+                    int a = getSelectedTab() - SharedMediaLayout.TAB_STORIES;
+                    if (a < 0 || a > 1) return;
+                    bottomButtonContainer[a]
+                            .animate()
+                            .translationY(show || a == 0 && MessagesController.getInstance(currentAccount).storiesEnabled() ? 0 : dp(72))
+                            .setDuration(320)
+                            .setInterpolator(CubicBezierInterpolator.EASE_OUT_QUINT)
+                            .setUpdateListener(anm -> updateBottomButtonY())
+                            .start();
+                }
+            }
+            @Override
+            protected void onTabProgress(float progress) {
+                super.onTabProgress(progress);
+                if (myProfile) {
+                    int width = sharedMediaLayout == null ? AndroidUtilities.displaySize.x : sharedMediaLayout.getMeasuredWidth();
+                    if (bottomButtonContainer[0] != null)
+                        bottomButtonContainer[0].setTranslationX((SharedMediaLayout.TAB_STORIES - progress) * width);
+                    if (bottomButtonContainer[1] != null)
+                        bottomButtonContainer[1].setTranslationX((SharedMediaLayout.TAB_ARCHIVED_STORIES - progress) * width);
+                    updateBottomButtonY();
+                }
+            }
+
+            @Override
+            protected void onActionModeSelectedUpdate(SparseArray<MessageObject> messageObjects) {
+                super.onActionModeSelectedUpdate(messageObjects);
+                if (myProfile) {
+                    final int count = messageObjects.size();
+                    int a = getSelectedTab() - SharedMediaLayout.TAB_STORIES;
+                    if (a < 0 || a > 1) return;
+                    if (a == 0) {
+                        bottomButton[a].setText(count > 0 || !MessagesController.getInstance(currentAccount).storiesEnabled() ? formatPluralString("ArchiveStories", count) : bottomButtonPostText, true);
+                    }
+                    bottomButton[a].setCount(count, true);
+                }
+            }
+
+            @Override
+            public void openStoryRecorder() {
+                StoryRecorder.getInstance(getParentActivity(), currentAccount)
+                        .selectedPeerId(getDialogId())
+                        .canChangePeer(false)
+                        .closeToWhenSent(new StoryRecorder.ClosingViewProvider() {
+                            @Override
+                            public void preLayout(long dialogId, Runnable runnable) {
+                                avatarImage.setHasStories(needInsetForStories());
+                                if (dialogId == getDialogId()) {
+                                    collapseAvatarInstant();
+                                }
+                                AndroidUtilities.runOnUIThread(runnable, 30);
+                            }
+
+                            @Override
+                            public StoryRecorder.SourceView getView(long dialogId) {
+                                if (dialogId != getDialogId()) {
+                                    return null;
+                                }
+                                updateAvatarRoundRadius();
+                                return StoryRecorder.SourceView.fromAvatarImage(avatarImage, ChatObject.isForum(currentChat));
+                            }
+                        })
+                        .open(StoryRecorder.SourceView.fromFloatingButton(floatingButtonContainer), true);
+            }
+
+            @Override
+            public void updateTabs(boolean animated) {
+                super.updateTabs(animated);
+                if (openGifts && !openedGifts && scrollSlidingTextTabStrip.hasTab(TAB_GIFTS)) {
+                    openedGifts = true;
+                    scrollToPage(TAB_GIFTS);
+                }
+            }
+        };
+        sharedMediaLayout.setLayoutParams(new RecyclerView.LayoutParams(RecyclerView.LayoutParams.MATCH_PARENT, RecyclerView.LayoutParams.MATCH_PARENT));
 
         fragmentView.setWillNotDraw(false);
         contentView = ((NestedFrameLayout) fragmentView);
         FrameLayout frameLayout = (FrameLayout) fragmentView;
 
-        initSharedMediaLayout(context);
         listAdapter = new ListAdapter(context);
         layoutManager = new LinearLayoutManager(context) {
 
@@ -2189,43 +2349,6 @@ public class ProfileActivityV3 extends BaseFragment implements SharedMediaLayout
         //NotificationCenter.getGlobalInstance().postNotificationName(NotificationCenter.needCheckSystemBarColors, true);
     }
 
-    private void initSharedMediaLayout(Context context) {
-        final ArrayList<Integer> users = chatInfo != null && chatInfo.participants != null && chatInfo.participants.participants.size() > 5 ? sortedUsers : null;
-        int initialTab = -1;
-        if (openCommonChats) {
-            initialTab = SharedMediaLayout.TAB_COMMON_GROUPS;
-        } else if (openGifts && (userInfo != null && userInfo.stargifts_count > 0 || chatInfo != null && chatInfo.stargifts_count > 0)) {
-            initialTab = SharedMediaLayout.TAB_GIFTS;
-            openedGifts = true;
-        } else if (openSimilar) {
-            initialTab = SharedMediaLayout.TAB_RECOMMENDED_CHANNELS;
-        } else if (users != null) {
-            initialTab = SharedMediaLayout.TAB_GROUPUSERS;
-        }
-        sharedMediaLayout = new SharedMediaLayout(context, getDialogId(), sharedMediaPreloader, userInfo != null ? userInfo.common_chats_count : 0, sortedUsers, chatInfo, userInfo, initialTab, this, this, SharedMediaLayout.VIEW_TYPE_PROFILE_ACTIVITY, resourcesProvider) {
-
-            @Override
-            protected boolean includeSavedDialogs() {
-                return dialogId == getUserConfig().getClientUserId() && !saved;
-            }
-            @Override
-            protected boolean isSelf() {
-                return myProfile;
-            }
-
-            @Override
-            protected boolean isStoriesView() {
-                return myProfile;
-            }
-
-            @Override
-            protected int getInitialTab() {
-                return TAB_STORIES;
-            }
-        };
-        sharedMediaLayout.setLayoutParams(new RecyclerView.LayoutParams(RecyclerView.LayoutParams.MATCH_PARENT, RecyclerView.LayoutParams.MATCH_PARENT));
-    }
-
     @Override
     public void scrollToSharedMedia() {
         scrollToSharedMedia(false);
@@ -2241,11 +2364,6 @@ public class ProfileActivityV3 extends BaseFragment implements SharedMediaLayout
                 layoutManager.scrollToPositionWithOffset(sharedMediaRow, -listView.getPaddingTop());
             }
         }
-    }
-
-    @Override
-    public boolean onMemberClick(TLRPC.ChatParticipant participant, boolean b, boolean resultOnly, View view) {
-        return false;
     }
 
     @Override
@@ -5284,12 +5402,12 @@ public class ProfileActivityV3 extends BaseFragment implements SharedMediaLayout
 
             if (sharedMediaRow == -1) {
                 if (isInLandscapeMode || AndroidUtilities.isTablet()) {
-                    listView.setPadding(0, AndroidUtilities.dp(88), 0, 0);
+                    listView.setPadding(0, (int) middleHeight, 0, 0);
                     expandAnimator.cancel();
                     expandAnimatorValues[0] = 1f;
                     expandAnimatorValues[1] = 0f;
                     setAvatarExpandProgress(1f);
-                    extraHeight = AndroidUtilities.dp(88);
+                    extraHeight = middleHeight;
                 } else {
                     final int actionBarHeight = ActionBar.getCurrentActionBarHeight() + (actionBar.getOccupyStatusBar() ? AndroidUtilities.statusBarHeight : 0);
                     int ws = View.MeasureSpec.makeMeasureSpec(listView.getMeasuredWidth(), View.MeasureSpec.EXACTLY);
@@ -5301,7 +5419,7 @@ public class ProfileActivityV3 extends BaseFragment implements SharedMediaLayout
                         holder.itemView.measure(ws, hs);
                         contentHeight += holder.itemView.getMeasuredHeight();
                     }
-                    int paddingBottom = Math.max(0, fragmentView.getMeasuredHeight() - (contentHeight + AndroidUtilities.dp(88) + actionBarHeight));
+                    int paddingBottom = Math.max(0, fragmentView.getMeasuredHeight() - (contentHeight + (int) middleHeight + actionBarHeight));
                     listView.setPadding(0, listView.getPaddingTop(), 0, paddingBottom);
                 }
             }
@@ -5519,4 +5637,224 @@ public class ProfileActivityV3 extends BaseFragment implements SharedMediaLayout
             }
         }
     }
+
+    /** READY */
+    private void updateBottomButtonY() {
+        if (bottomButtonsContainer == null) {
+            return;
+        }
+        bottomButtonsContainer.setTranslationY(sharedMediaLayout != null && sharedMediaLayout.isAttachedToWindow() ? Math.max(0, dp(72 + 64 + 48) - (listView.getMeasuredHeight() - sharedMediaLayout.getY())) : dp(72));
+        final Bulletin bulletin = Bulletin.getVisibleBulletin();
+        if (bulletin != null) {
+            bulletin.updatePosition();
+        }
+    }
+
+    /** READY */
+    public boolean onMemberClick(TLRPC.ChatParticipant participant, boolean isLong, View view) {
+        return onMemberClick(participant, isLong, false, view);
+    }
+
+    /** READY */
+    public boolean onMemberClick(TLRPC.ChatParticipant participant, boolean isLong, boolean resultOnly) {
+        return onMemberClick(participant, isLong, resultOnly, null);
+    }
+
+    /** READY */
+    public boolean onMemberClick(TLRPC.ChatParticipant participant, boolean isLong, boolean resultOnly, View view) {
+        if (getParentActivity() == null) {
+            return false;
+        }
+        if (isLong) {
+            TLRPC.User user = getMessagesController().getUser(participant.user_id);
+            if (user == null || participant.user_id == getUserConfig().getClientUserId()) {
+                return false;
+            }
+            selectedUser = participant.user_id;
+            boolean allowKick;
+            boolean canEditAdmin;
+            boolean canRestrict;
+            boolean editingAdmin;
+            final TLRPC.ChannelParticipant channelParticipant;
+
+            if (ChatObject.isChannel(currentChat)) {
+                channelParticipant = ((TLRPC.TL_chatChannelParticipant) participant).channelParticipant;
+                TLRPC.User u = getMessagesController().getUser(participant.user_id);
+                canEditAdmin = ChatObject.canAddAdmins(currentChat);
+                if (canEditAdmin && (channelParticipant instanceof TLRPC.TL_channelParticipantCreator || channelParticipant instanceof TLRPC.TL_channelParticipantAdmin && !channelParticipant.can_edit)) {
+                    canEditAdmin = false;
+                }
+                allowKick = canRestrict = ChatObject.canBlockUsers(currentChat) && (!(channelParticipant instanceof TLRPC.TL_channelParticipantAdmin || channelParticipant instanceof TLRPC.TL_channelParticipantCreator) || channelParticipant.can_edit);
+                if (currentChat.gigagroup) {
+                    canRestrict = false;
+                }
+                editingAdmin = channelParticipant instanceof TLRPC.TL_channelParticipantAdmin;
+            } else {
+                channelParticipant = null;
+                allowKick = currentChat.creator || participant instanceof TLRPC.TL_chatParticipant && (ChatObject.canBlockUsers(currentChat) || participant.inviter_id == getUserConfig().getClientUserId());
+                canEditAdmin = currentChat.creator;
+                canRestrict = currentChat.creator;
+                editingAdmin = participant instanceof TLRPC.TL_chatParticipantAdmin;
+            }
+
+            boolean result = (canEditAdmin || canRestrict || allowKick);
+            if (resultOnly || !result) {
+                return result;
+            }
+
+            Utilities.Callback<Integer> openRightsEdit = action -> {
+                if (channelParticipant != null) {
+                    openRightsEdit(action, user, participant, channelParticipant.admin_rights, channelParticipant.banned_rights, channelParticipant.rank, editingAdmin);
+                } else {
+                    openRightsEdit(action, user, participant, null, null, "", editingAdmin);
+                }
+            };
+
+            ItemOptions.makeOptions(this, view)
+                    .setScrimViewBackground(new ColorDrawable(Theme.getColor(Theme.key_windowBackgroundWhite)))
+                    .addIf(canEditAdmin, R.drawable.msg_admins, editingAdmin ? LocaleController.getString(R.string.EditAdminRights) : LocaleController.getString(R.string.SetAsAdmin), () -> openRightsEdit.run(0))
+                    .addIf(canRestrict, R.drawable.msg_permissions, LocaleController.getString(R.string.ChangePermissions), () -> {
+                        if (channelParticipant instanceof TLRPC.TL_channelParticipantAdmin || participant instanceof TLRPC.TL_chatParticipantAdmin) {
+                            showDialog(
+                                    new AlertDialog.Builder(getParentActivity(), resourcesProvider)
+                                            .setTitle(LocaleController.getString(R.string.AppName))
+                                            .setMessage(formatString("AdminWillBeRemoved", R.string.AdminWillBeRemoved, ContactsController.formatName(user.first_name, user.last_name)))
+                                            .setPositiveButton(LocaleController.getString(R.string.OK), (dialog, which) -> openRightsEdit.run(1))
+                                            .setNegativeButton(LocaleController.getString(R.string.Cancel), null)
+                                            .create()
+                            );
+                        } else {
+                            openRightsEdit.run(1);
+                        }
+                    })
+                    .addIf(allowKick, R.drawable.msg_remove, LocaleController.getString(R.string.KickFromGroup), true, () -> {
+                        kickUser(selectedUser, participant);
+                    })
+                    .setMinWidth(190)
+                    .show();
+        } else {
+            if (participant.user_id == getUserConfig().getClientUserId()) {
+                return false;
+            }
+            Bundle args = new Bundle();
+            args.putLong("user_id", participant.user_id);
+            args.putBoolean("preload_messages", true);
+            presentFragment(new ProfileActivity(args));
+        }
+        return true;
+    }
+
+    /** READY */
+    private void openRightsEdit(int action, TLRPC.User user, TLRPC.ChatParticipant participant, TLRPC.TL_chatAdminRights adminRights, TLRPC.TL_chatBannedRights bannedRights, String rank, boolean editingAdmin) {
+        boolean[] needShowBulletin = new boolean[1];
+        ChatRightsEditActivity fragment = new ChatRightsEditActivity(user.id, chatId, adminRights, currentChat.default_banned_rights, bannedRights, rank, action, true, false, null) {
+            @Override
+            public void onTransitionAnimationEnd(boolean isOpen, boolean backward) {
+                if (!isOpen && backward && needShowBulletin[0] && BulletinFactory.canShowBulletin(ProfileActivityV3.this)) {
+                    BulletinFactory.createPromoteToAdminBulletin(ProfileActivityV3.this, user.first_name).show();
+                }
+            }
+        };
+        fragment.setDelegate(new ChatRightsEditActivity.ChatRightsEditActivityDelegate() {
+            @Override
+            public void didSetRights(int rights, TLRPC.TL_chatAdminRights rightsAdmin, TLRPC.TL_chatBannedRights rightsBanned, String rank) {
+                if (action == 0) {
+                    if (participant instanceof TLRPC.TL_chatChannelParticipant) {
+                        TLRPC.TL_chatChannelParticipant channelParticipant1 = ((TLRPC.TL_chatChannelParticipant) participant);
+                        if (rights == 1) {
+                            channelParticipant1.channelParticipant = new TLRPC.TL_channelParticipantAdmin();
+                            channelParticipant1.channelParticipant.flags |= 4;
+                        } else {
+                            channelParticipant1.channelParticipant = new TLRPC.TL_channelParticipant();
+                        }
+                        channelParticipant1.channelParticipant.inviter_id = getUserConfig().getClientUserId();
+                        channelParticipant1.channelParticipant.peer = new TLRPC.TL_peerUser();
+                        channelParticipant1.channelParticipant.peer.user_id = participant.user_id;
+                        channelParticipant1.channelParticipant.date = participant.date;
+                        channelParticipant1.channelParticipant.banned_rights = rightsBanned;
+                        channelParticipant1.channelParticipant.admin_rights = rightsAdmin;
+                        channelParticipant1.channelParticipant.rank = rank;
+                    } else if (participant != null) {
+                        TLRPC.ChatParticipant newParticipant;
+                        if (rights == 1) {
+                            newParticipant = new TLRPC.TL_chatParticipantAdmin();
+                        } else {
+                            newParticipant = new TLRPC.TL_chatParticipant();
+                        }
+                        newParticipant.user_id = participant.user_id;
+                        newParticipant.date = participant.date;
+                        newParticipant.inviter_id = participant.inviter_id;
+                        int index = chatInfo.participants.participants.indexOf(participant);
+                        if (index >= 0) {
+                            chatInfo.participants.participants.set(index, newParticipant);
+                        }
+                    }
+                    if (rights == 1 && !editingAdmin) {
+                        needShowBulletin[0] = true;
+                    }
+                } else if (action == 1) {
+                    if (rights == 0) {
+                        if (currentChat.megagroup && chatInfo != null && chatInfo.participants != null) {
+                            boolean changed = false;
+                            for (int a = 0; a < chatInfo.participants.participants.size(); a++) {
+                                TLRPC.ChannelParticipant p = ((TLRPC.TL_chatChannelParticipant) chatInfo.participants.participants.get(a)).channelParticipant;
+                                if (MessageObject.getPeerId(p.peer) == participant.user_id) {
+                                    chatInfo.participants_count--;
+                                    chatInfo.participants.participants.remove(a);
+                                    changed = true;
+                                    break;
+                                }
+                            }
+                            if (chatInfo != null && chatInfo.participants != null) {
+                                for (int a = 0; a < chatInfo.participants.participants.size(); a++) {
+                                    TLRPC.ChatParticipant p = chatInfo.participants.participants.get(a);
+                                    if (p.user_id == participant.user_id) {
+                                        chatInfo.participants.participants.remove(a);
+                                        changed = true;
+                                        break;
+                                    }
+                                }
+                            }
+                            if (changed) {
+                                updateOnlineCount(true);
+                                updateRowsIds();
+                                listAdapter.notifyDataSetChanged();
+                            }
+                        }
+                    }
+                }
+            }
+
+            @Override
+            public void didChangeOwner(TLRPC.User user) {
+                undoView.showWithAction(-chatId, currentChat.megagroup ? UndoView.ACTION_OWNER_TRANSFERED_GROUP : UndoView.ACTION_OWNER_TRANSFERED_CHANNEL, user);
+            }
+        });
+        presentFragment(fragment);
+    }
+
+    /** READY */
+    private void kickUser(long uid, TLRPC.ChatParticipant participant) {
+        if (uid != 0) {
+            TLRPC.User user = getMessagesController().getUser(uid);
+            getMessagesController().deleteParticipantFromChat(chatId, user);
+            if (currentChat != null && user != null && BulletinFactory.canShowBulletin(this)) {
+                BulletinFactory.createRemoveFromChatBulletin(this, user, currentChat.title).show();
+            }
+            if (chatInfo.participants.participants.remove(participant)) {
+                updateListAnimated(true);
+            }
+        } else {
+            getNotificationCenter().removeObserver(this, NotificationCenter.closeChats);
+            if (AndroidUtilities.isTablet()) {
+                getNotificationCenter().postNotificationName(NotificationCenter.closeChats, -chatId);
+            } else {
+                getNotificationCenter().postNotificationName(NotificationCenter.closeChats);
+            }
+            getMessagesController().deleteParticipantFromChat(chatId, getMessagesController().getUser(getUserConfig().getClientUserId()));
+            playProfileAnimation = 0;
+            finishFragment();
+        }
+    }
+
 }
