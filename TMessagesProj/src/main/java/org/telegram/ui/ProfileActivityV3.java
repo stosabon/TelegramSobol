@@ -60,6 +60,7 @@ import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.HapticFeedbackConstants;
 import android.view.MotionEvent;
+import android.view.VelocityTracker;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.accessibility.AccessibilityNodeInfo;
@@ -79,6 +80,7 @@ import androidx.core.graphics.ColorUtils;
 import androidx.core.view.NestedScrollingParent3;
 import androidx.core.view.NestedScrollingParentHelper;
 import androidx.core.view.ViewCompat;
+import androidx.recyclerview.widget.DefaultItemAnimator;
 import androidx.recyclerview.widget.DiffUtil;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.LinearSmoothScrollerCustom;
@@ -200,6 +202,7 @@ import org.telegram.ui.Stars.StarGiftPatterns;
 import org.telegram.ui.Stars.StarsController;
 import org.telegram.ui.Stars.StarsIntroActivity;
 import org.telegram.ui.Stories.StoriesController;
+import org.telegram.ui.Stories.StoriesListPlaceProvider;
 import org.telegram.ui.Stories.recorder.ButtonWithCounterView;
 import org.telegram.ui.Stories.recorder.StoryRecorder;
 import org.telegram.ui.bots.AffiliateProgramFragment;
@@ -245,6 +248,7 @@ public class ProfileActivityV3 extends BaseFragment implements SharedMediaLayout
     private ListAdapter listAdapter;
     private SearchAdapter searchAdapter;
     private RecyclerListView listView;
+    private float listViewVelocityY;
     private AvatarDrawable avatarDrawable;
 
     private FrameLayout avatarContainer;
@@ -1943,7 +1947,172 @@ public class ProfileActivityV3 extends BaseFragment implements SharedMediaLayout
         contentView = ((NestedFrameLayout) fragmentView);
         contentView.needBlur = true;
         FrameLayout frameLayout = (FrameLayout) fragmentView;
+        listView = new ClippedListView(context) {
 
+            private VelocityTracker velocityTracker;
+
+            @Override
+            protected boolean canHighlightChildAt(View child, float x, float y) {
+                return !(child instanceof AboutLinkCell);
+            }
+
+            @Override
+            protected boolean allowSelectChildAtPosition(View child) {
+                return child != sharedMediaLayout;
+            }
+
+            @Override
+            public boolean hasOverlappingRendering() {
+                return false;
+            }
+
+            @Override
+            protected void requestChildOnScreen(View child, View focused) {
+
+            }
+
+            @Override
+            public void invalidate() {
+                super.invalidate();
+                if (fragmentView != null) {
+                    fragmentView.invalidate();
+                }
+            }
+
+            @Override
+            public boolean onInterceptTouchEvent(MotionEvent e) {
+                if (sharedMediaLayout != null) {
+                    if (sharedMediaLayout.canEditStories() && sharedMediaLayout.isActionModeShown() && sharedMediaLayout.getClosestTab() == SharedMediaLayout.TAB_BOT_PREVIEWS) {
+                        return false;
+                    }
+                    if (sharedMediaLayout.canEditStories() && sharedMediaLayout.isActionModeShown() && sharedMediaLayout.getClosestTab() == SharedMediaLayout.TAB_STORIES) {
+                        return false;
+                    }
+                    if (sharedMediaLayout.giftsContainer != null && sharedMediaLayout.giftsContainer.isReordering()) {
+                        return false;
+                    }
+                }
+                return super.onInterceptTouchEvent(e);
+            }
+
+            @Override
+            public boolean onTouchEvent(MotionEvent e) {
+                final int action = e.getAction();
+                if (action == MotionEvent.ACTION_DOWN) {
+                    if (velocityTracker == null) {
+                        velocityTracker = VelocityTracker.obtain();
+                    } else {
+                        velocityTracker.clear();
+                    }
+                    velocityTracker.addMovement(e);
+                } else if (action == MotionEvent.ACTION_MOVE) {
+                    if (velocityTracker != null) {
+                        velocityTracker.addMovement(e);
+                        velocityTracker.computeCurrentVelocity(1000);
+                        listViewVelocityY = velocityTracker.getYVelocity(e.getPointerId(e.getActionIndex()));
+                    }
+                } else if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
+                    if (velocityTracker != null) {
+                        velocityTracker.recycle();
+                        velocityTracker = null;
+                    }
+                }
+                final boolean result = super.onTouchEvent(e);
+                if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
+                    if (allowPullingDown) {
+                        final View view = layoutManager.findViewByPosition(0);
+                        if (view != null) {
+                            if (isPulledDown) {
+                                final int actionBarHeight = ActionBar.getCurrentActionBarHeight() + (actionBar.getOccupyStatusBar() ? AndroidUtilities.statusBarHeight : 0);
+                                listView.smoothScrollBy(0, view.getTop() - listView.getMeasuredWidth() + actionBarHeight, CubicBezierInterpolator.EASE_OUT_QUINT);
+                            } else {
+                                listView.smoothScrollBy(0, view.getTop() - (int) middleHeight, CubicBezierInterpolator.EASE_OUT_QUINT);
+                            }
+                        }
+                    }
+                }
+                return result;
+            }
+
+            @Override
+            public boolean drawChild(Canvas canvas, View child, long drawingTime) {
+                if (getItemAnimator().isRunning() && child.getBackground() == null && child.getTranslationY() != 0) {
+                    boolean useAlpha = listView.getChildAdapterPosition(child) == sharedMediaRow && child.getAlpha() != 1f;
+                    if (useAlpha) {
+                        whitePaint.setAlpha((int) (255 * listView.getAlpha() * child.getAlpha()));
+                    }
+                    canvas.drawRect(listView.getX(), child.getY(), listView.getX() + listView.getMeasuredWidth(), child.getY() + child.getHeight(), whitePaint);
+                    if (useAlpha) {
+                        whitePaint.setAlpha((int) (255 * listView.getAlpha()));
+                    }
+                }
+                return super.drawChild(canvas, child, drawingTime);
+            }
+
+            @Override
+            protected void dispatchDraw(Canvas canvas) {
+                if (bizHoursRow >= 0 && infoStartRow >= 0 && infoEndRow >= 0) {
+                    drawSectionBackground(canvas, infoStartRow, infoEndRow, getThemedColor(Theme.key_windowBackgroundWhite));
+                }
+                super.dispatchDraw(canvas);
+            }
+
+            @Override
+            protected void onLayout(boolean changed, int l, int t, int r, int b) {
+                super.onLayout(changed, l, t, r, b);
+                updateBottomButtonY();
+            }
+        };
+        listView.setVerticalScrollBarEnabled(false);
+        DefaultItemAnimator defaultItemAnimator = new DefaultItemAnimator() {
+
+            int animationIndex = -1;
+
+            @Override
+            protected void onAllAnimationsDone() {
+                super.onAllAnimationsDone();
+                AndroidUtilities.runOnUIThread(() -> {
+                    getNotificationCenter().onAnimationFinish(animationIndex);
+                });
+            }
+
+            @Override
+            public void runPendingAnimations() {
+                boolean removalsPending = !mPendingRemovals.isEmpty();
+                boolean movesPending = !mPendingMoves.isEmpty();
+                boolean changesPending = !mPendingChanges.isEmpty();
+                boolean additionsPending = !mPendingAdditions.isEmpty();
+                if (removalsPending || movesPending || additionsPending || changesPending) {
+                    ValueAnimator valueAnimator = ValueAnimator.ofFloat(0, 1f);
+                    valueAnimator.addUpdateListener(valueAnimator1 -> listView.invalidate());
+                    valueAnimator.setDuration(getMoveDuration());
+                    valueAnimator.start();
+                    animationIndex = getNotificationCenter().setAnimationInProgress(animationIndex, null);
+                }
+                super.runPendingAnimations();
+            }
+
+            @Override
+            protected long getAddAnimationDelay(long removeDuration, long moveDuration, long changeDuration) {
+                return 0;
+            }
+
+            @Override
+            protected void onMoveAnimationUpdate(RecyclerView.ViewHolder holder) {
+                super.onMoveAnimationUpdate(holder);
+                updateBottomButtonY();
+            }
+        };
+        listView.setItemAnimator(defaultItemAnimator);
+        defaultItemAnimator.setMoveDelay(0);
+        defaultItemAnimator.setMoveDuration(320);
+        defaultItemAnimator.setRemoveDuration(320);
+        defaultItemAnimator.setAddDuration(320);
+        defaultItemAnimator.setSupportsChangeAnimations(false);
+        defaultItemAnimator.setDelayAnimations(false);
+        defaultItemAnimator.setInterpolator(CubicBezierInterpolator.EASE_OUT_QUINT);
+        listView.setClipToPadding(false);
+        listView.setHideIfEmpty(false);
         layoutManager = new LinearLayoutManager(context) {
 
             @Override
@@ -1976,17 +2145,15 @@ public class ProfileActivityV3 extends BaseFragment implements SharedMediaLayout
             }
         };
         layoutManager.setOrientation(LinearLayoutManager.VERTICAL);
-        listView = new RecyclerListView(context) {
-            @Override
-            public void invalidate() {
-                super.invalidate();
-                if (fragmentView != null) {
-                    fragmentView.invalidate();
-                }
-            }
-        };
-        listView.setAdapter(listAdapter);
+        layoutManager.mIgnoreTopPadding = false;
         listView.setLayoutManager(layoutManager);
+        listView.setGlowColor(0);
+        listView.setAdapter(listAdapter);
+        frameLayout.addView(listView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT, Gravity.TOP | Gravity.LEFT));
+
+
+
+
         listView.setOnScrollListener(new RecyclerView.OnScrollListener() {
 
             @Override
@@ -1998,9 +2165,6 @@ public class ProfileActivityV3 extends BaseFragment implements SharedMediaLayout
                 sharedMediaLayout.setPinnedToTop(sharedMediaLayout.getY() <= 0);
             }
         });
-        listView.setClipToPadding(false);
-        listView.setHideIfEmpty(false);
-        frameLayout.addView(listView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT));
 
         if (banFromGroup != 0) {
             TLRPC.Chat chat = getMessagesController().getChat(banFromGroup);
@@ -7628,6 +7792,19 @@ public class ProfileActivityV3 extends BaseFragment implements SharedMediaLayout
 
         public boolean isSearchWas() {
             return searchWas;
+        }
+    }
+
+    /** READY */
+    private class ClippedListView extends RecyclerListView implements StoriesListPlaceProvider.ClippedView {
+        public ClippedListView(Context context) {
+            super(context);
+        }
+
+        @Override
+        public void updateClip(int[] clip) {
+            clip[0] = actionBar.getMeasuredHeight();
+            clip[1] = getMeasuredHeight() - getPaddingBottom();
         }
     }
 }
