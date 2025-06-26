@@ -112,6 +112,7 @@ import org.telegram.ui.Components.BackupImageView;
 import org.telegram.ui.Components.BulletinFactory;
 import org.telegram.ui.Components.ChatActivityInterface;
 import org.telegram.ui.Components.CubicBezierInterpolator;
+import org.telegram.ui.Components.FragmentContextView;
 import org.telegram.ui.Components.IdenticonDrawable;
 import org.telegram.ui.Components.ImageUpdater;
 import org.telegram.ui.Components.LayoutHelper;
@@ -169,6 +170,7 @@ public class ProfileActivityV3 extends BaseFragment implements SharedMediaLayout
     private boolean allowPullingDown;
     private boolean isPulledDown; // TODO check set
     private boolean openingAvatar; // TODO check set
+    private boolean transitionAnimationInProgress;
     int savedScrollPosition = -1;
     int savedScrollOffset;
     boolean savedScrollToSharedMedia;
@@ -323,6 +325,8 @@ public class ProfileActivityV3 extends BaseFragment implements SharedMediaLayout
     private TLRPC.FileLocation avatarBig;
     private ArrayList<Integer> sortedUsers;
 
+    private Paint whitePaint = new Paint();
+
     public ProfileActivityV3(Bundle args) {
         this(args, null);
     }
@@ -467,6 +471,138 @@ public class ProfileActivityV3 extends BaseFragment implements SharedMediaLayout
                 savedScrollPosition = -1;
                 Log.e("STAS", "onLayout");
             }
+
+            private Paint grayPaint = new Paint();
+            private final ArrayList<View> sortedChildren = new ArrayList<>();
+            private final Comparator<View> viewComparator = (view, view2) -> (int) (view.getY() - view2.getY());
+            @Override
+            protected void dispatchDraw(Canvas canvas) {
+                whitePaint.setColor(getThemedColor(Theme.key_windowBackgroundWhite));
+                if (listView.getVisibility() == VISIBLE) {
+                    grayPaint.setColor(getThemedColor(Theme.key_windowBackgroundGray));
+                    if (transitionAnimationInProgress) {
+                        whitePaint.setAlpha((int) (255 * listView.getAlpha()));
+                    }
+                    if (transitionAnimationInProgress) {
+                        grayPaint.setAlpha((int) (255 * listView.getAlpha()));
+                    }
+
+                    int count = listView.getChildCount();
+                    sortedChildren.clear();
+                    boolean hasRemovingItems = false;
+                    for (int i = 0; i < count; i++) {
+                        View child = listView.getChildAt(i);
+                        if (listView.getChildAdapterPosition(child) != RecyclerView.NO_POSITION) {
+                            sortedChildren.add(listView.getChildAt(i));
+                        } else {
+                            hasRemovingItems = true;
+                        }
+                    }
+                    Collections.sort(sortedChildren, viewComparator);
+                    boolean hasBackground = false;
+                    float lastY = listView.getY();
+                    count = sortedChildren.size();
+                    if (!transitionAnimationInProgress && count > 0 && !hasRemovingItems) {
+                        lastY += sortedChildren.get(0).getY();
+                    }
+                    float alpha = 1f;
+                    for (int i = 0; i < count; i++) {
+                        View child = sortedChildren.get(i);
+                        boolean currentHasBackground = child.getBackground() != null;
+                        int currentY = (int) (listView.getY() + child.getY());
+                        if (hasBackground == currentHasBackground) {
+                            if (child.getAlpha() == 1f) {
+                                alpha = 1f;
+                            }
+                            continue;
+                        }
+                        if (hasBackground) {
+                            canvas.drawRect(listView.getX(), lastY, listView.getX() + listView.getMeasuredWidth(), currentY, grayPaint);
+                        } else {
+                            if (alpha != 1f) {
+                                canvas.drawRect(listView.getX(), lastY, listView.getX() + listView.getMeasuredWidth(), currentY, grayPaint);
+                                whitePaint.setAlpha((int) (255 * alpha));
+                                canvas.drawRect(listView.getX(), lastY, listView.getX() + listView.getMeasuredWidth(), currentY, whitePaint);
+                                whitePaint.setAlpha(255);
+                            } else {
+                                canvas.drawRect(listView.getX(), lastY, listView.getX() + listView.getMeasuredWidth(), currentY, whitePaint);
+                            }
+                        }
+                        hasBackground = currentHasBackground;
+                        lastY = currentY;
+                        alpha = child.getAlpha();
+                    }
+
+                    if (hasBackground) {
+                        canvas.drawRect(listView.getX(), lastY, listView.getX() + listView.getMeasuredWidth(), listView.getBottom(), grayPaint);
+                    } else {
+                        if (alpha != 1f) {
+                            canvas.drawRect(listView.getX(), lastY, listView.getX() + listView.getMeasuredWidth(), listView.getBottom(), grayPaint);
+                            whitePaint.setAlpha((int) (255 * alpha));
+                            canvas.drawRect(listView.getX(), lastY, listView.getX() + listView.getMeasuredWidth(), listView.getBottom(), whitePaint);
+                            whitePaint.setAlpha(255);
+                        } else {
+                            canvas.drawRect(listView.getX(), lastY, listView.getX() + listView.getMeasuredWidth(), listView.getBottom(), whitePaint);
+                        }
+                    }
+                } else {
+                    // TODO uncomment when ready
+                    //int top = searchListView.getTop();
+                    //canvas.drawRect(0, top + extraHeight + searchTransitionOffset, getMeasuredWidth(), top + getMeasuredHeight(), whitePaint);
+                }
+                super.dispatchDraw(canvas);
+                // TODO uncomment when ready
+                //if (profileTransitionInProgress && parentLayout.getFragmentStack().size() > 1) {
+                //    BaseFragment fragment = parentLayout.getFragmentStack().get(parentLayout.getFragmentStack().size() - 2);
+                //    if (fragment instanceof ChatActivity) {
+                //        ChatActivity chatActivity = (ChatActivity) fragment;
+                //        FragmentContextView fragmentContextView = chatActivity.getFragmentContextView();
+                //
+                //        if (fragmentContextView != null && fragmentContextView.isCallStyle()) {
+                //            float progress = extraHeight / AndroidUtilities.dpf2(fragmentContextView.getStyleHeight());
+                //            if (progress > 1f) {
+                //                progress = 1f;
+                //            }
+                //            canvas.save();
+                //            canvas.translate(fragmentContextView.getX(), fragmentContextView.getY());
+                //            fragmentContextView.setDrawOverlay(true);
+                //            fragmentContextView.setCollapseTransition(true, extraHeight, progress);
+                //            fragmentContextView.draw(canvas);
+                //            fragmentContextView.setCollapseTransition(false, extraHeight, progress);
+                //            fragmentContextView.setDrawOverlay(false);
+                //            canvas.restore();
+                //        }
+                //    }
+                //}
+                //if (scrimPaint.getAlpha() > 0) {
+                //    canvas.drawRect(0, 0, getWidth(), getHeight(), scrimPaint);
+                //}
+                //if (scrimView != null) {
+                //    int c = canvas.save();
+                //    canvas.translate(scrimView.getLeft(), scrimView.getTop());
+                //    if (scrimView == actionBar.getBackButton()) {
+                //        int r = Math.max(scrimView.getMeasuredWidth(), scrimView.getMeasuredHeight()) / 2;
+                //        int wasAlpha = actionBarBackgroundPaint.getAlpha();
+                //        actionBarBackgroundPaint.setAlpha((int) (wasAlpha * (scrimPaint.getAlpha() / 255f) / 0.3f));
+                //        canvas.drawCircle(r, r, r * 0.7f, actionBarBackgroundPaint);
+                //        actionBarBackgroundPaint.setAlpha(wasAlpha);
+                //    }
+                //    scrimView.draw(canvas);
+                //    canvas.restoreToCount(c);
+                //}
+                //if (blurredView != null && blurredView.getVisibility() == View.VISIBLE) {
+                //    if (blurredView.getAlpha() != 1f) {
+                //        if (blurredView.getAlpha() != 0) {
+                //            canvas.saveLayerAlpha(blurredView.getLeft(), blurredView.getTop(), blurredView.getRight(), blurredView.getBottom(), (int) (255 * blurredView.getAlpha()), Canvas.ALL_SAVE_FLAG);
+                //            canvas.translate(blurredView.getLeft(), blurredView.getTop());
+                //            blurredView.draw(canvas);
+                //            canvas.restore();
+                //        }
+                //    } else {
+                //        blurredView.draw(canvas);
+                //    }
+                //}
+            }
         };
         fragmentView.setWillNotDraw(false);
         contentView = ((NestedFrameLayout) fragmentView);
@@ -514,6 +650,27 @@ public class ProfileActivityV3 extends BaseFragment implements SharedMediaLayout
         if (sharedMediaLayout != null) {
             sharedMediaLayout.onPause();
         }
+    }
+
+    @Override
+    public void onTransitionAnimationStart(boolean isOpen, boolean backward) {
+        super.onTransitionAnimationStart(isOpen, backward);
+        Log.e("STAS", "onTransitionAnimationStart");
+
+        transitionAnimationInProgress = true;
+    }
+
+    @Override
+    public void onTransitionAnimationEnd(boolean isOpen, boolean backward) {
+        Log.e("STAS", "onTransitionAnimationEnd");
+        if (isOpen) {
+            if (!backward) {
+                if (!fragmentOpened) {
+                    fragmentOpened = true;
+                }
+            }
+        }
+        transitionAnimationInProgress = false;
     }
 
     private void initListView(Context context) {
@@ -2117,18 +2274,6 @@ public class ProfileActivityV3 extends BaseFragment implements SharedMediaLayout
             }
         }
     }
-
-    @Override
-    public void onTransitionAnimationEnd(boolean isOpen, boolean backward) {
-        if (isOpen) {
-            if (!backward) {
-                if (!fragmentOpened) {
-                    fragmentOpened = true;
-                }
-            }
-        }
-    }
-
     private void saveScrollPosition() {
         if (listView != null && layoutManager != null && listView.getChildCount() > 0 && !savedScrollToSharedMedia) {
             View view = null;
