@@ -326,7 +326,7 @@ public class ProfileActivityV3 extends BaseFragment implements SharedMediaLayout
     private AboutLinkCell aboutLinkCell;
     public ProfileChannelCell.ChannelMessageFetcher profileChannelMessageFetcher;
     private float extraHeight;
-    private float middleHeight = AndroidUtilities.dp(200f);
+    private int middleHeight;
     private int rowCount;
     private int setAvatarRow;
     private int setAvatarSectionRow;
@@ -941,6 +941,7 @@ public class ProfileActivityV3 extends BaseFragment implements SharedMediaLayout
         searchTransitionProgress = 1f;
         searchMode = false;
         hasOwnBackground = true;
+        middleHeight = AndroidUtilities.dp(200f);
         extraHeight = middleHeight;
 
         actionBar.setActionBarMenuOnItemClick(new ActionBar.ActionBarMenuOnItemClick() {
@@ -1469,7 +1470,7 @@ public class ProfileActivityV3 extends BaseFragment implements SharedMediaLayout
                             doNotSetForeground = true;
                             final View view = layoutManager.findViewByPosition(0);
                             if (view != null) {
-                                listView.smoothScrollBy(0, view.getTop() - (int) middleHeight, CubicBezierInterpolator.EASE_OUT_QUINT);
+                                listView.smoothScrollBy(0, view.getTop() - middleHeight, CubicBezierInterpolator.EASE_OUT_QUINT);
                             }
                         }
                     });
@@ -2071,7 +2072,7 @@ public class ProfileActivityV3 extends BaseFragment implements SharedMediaLayout
                                 final int actionBarHeight = ActionBar.getCurrentActionBarHeight() + (actionBar.getOccupyStatusBar() ? AndroidUtilities.statusBarHeight : 0);
                                 listView.smoothScrollBy(0, view.getTop() - listView.getMeasuredWidth() + actionBarHeight, CubicBezierInterpolator.EASE_OUT_QUINT);
                             } else {
-                                listView.smoothScrollBy(0, view.getTop() - (int) middleHeight, CubicBezierInterpolator.EASE_OUT_QUINT);
+                                listView.smoothScrollBy(0, view.getTop() - middleHeight, CubicBezierInterpolator.EASE_OUT_QUINT);
                             }
                         }
                     }
@@ -2169,7 +2170,7 @@ public class ProfileActivityV3 extends BaseFragment implements SharedMediaLayout
             public int scrollVerticallyBy(int dy, RecyclerView.Recycler recycler, RecyclerView.State state) {
                 final View view = layoutManager.findViewByPosition(0);
                 if (view != null && !openingAvatar) {
-                    final int canScroll = view.getTop() - (int) middleHeight;
+                    final int canScroll = view.getTop() - middleHeight;
                     if (!allowPullingDown && canScroll > dy) {
                         dy = canScroll;
                         if (avatarsViewPager.hasImages() && avatarImage.getImageReceiver().hasNotThumb() && !AndroidUtilities.isAccessibilityScreenReaderEnabled() && !isInLandscapeMode && !AndroidUtilities.isTablet()) {
@@ -3101,20 +3102,6 @@ public class ProfileActivityV3 extends BaseFragment implements SharedMediaLayout
             searchAdapter.loadFaqWebPage();
         }
 
-
-
-        listView.setOnScrollListener(new RecyclerView.OnScrollListener() {
-
-            @Override
-            public void onScrolled(RecyclerView recyclerView, int dx, int dy) {
-                checkListViewScroll();
-                if (participantsMap != null && !usersEndReached && layoutManager.findLastVisibleItemPosition() > membersEndRow - 8) {
-                    getChannelParticipants(false);
-                }
-                sharedMediaLayout.setPinnedToTop(sharedMediaLayout.getY() <= 0);
-            }
-        });
-
         if (banFromGroup != 0) {
             TLRPC.Chat chat = getMessagesController().getChat(banFromGroup);
             if (currentChannelParticipant == null) {
@@ -3174,11 +3161,26 @@ public class ProfileActivityV3 extends BaseFragment implements SharedMediaLayout
             textView.setText(LocaleController.getString(R.string.BanFromTheGroup));
             frameLayout1.addView(textView, LayoutHelper.createFrame(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT, Gravity.CENTER, 0, 1, 0, 0));
 
-            listView.setPadding(0, (int) middleHeight, 0, AndroidUtilities.dp(48));
+            listView.setPadding(0, middleHeight, 0, AndroidUtilities.dp(48));
             listView.setBottomGlowOffset(AndroidUtilities.dp(48));
         } else {
-            listView.setPadding(0, (int) middleHeight, 0, 0);
+            listView.setPadding(0, middleHeight, 0, 0);
         }
+
+
+
+
+        listView.setOnScrollListener(new RecyclerView.OnScrollListener() {
+
+            @Override
+            public void onScrolled(RecyclerView recyclerView, int dx, int dy) {
+                checkListViewScroll();
+                if (participantsMap != null && !usersEndReached && layoutManager.findLastVisibleItemPosition() > membersEndRow - 8) {
+                    getChannelParticipants(false);
+                }
+                sharedMediaLayout.setPinnedToTop(sharedMediaLayout.getY() <= 0);
+            }
+        });
 
         topView = new TopView(context);
         topView.setBackgroundColorId(peerColor, false);
@@ -3854,7 +3856,7 @@ public class ProfileActivityV3 extends BaseFragment implements SharedMediaLayout
                                     }
                                 }
                                 int paddingHeight = (fragmentView == null ? 0 : fragmentView.getMeasuredHeight()) - ActionBar.getCurrentActionBarHeight() - AndroidUtilities.statusBarHeight - totalHeight;
-                                if (paddingHeight > (int) middleHeight) {
+                                if (paddingHeight > middleHeight) {
                                     paddingHeight = 0;
                                 }
                                 if (paddingHeight <= 0) {
@@ -5120,8 +5122,8 @@ public class ProfileActivityV3 extends BaseFragment implements SharedMediaLayout
             if (view != null) {
                 savedScrollPosition = position;
                 savedScrollOffset = view.getTop();
-                if (savedScrollPosition == 0 && !allowPullingDown && savedScrollOffset > (int) middleHeight) {
-                    savedScrollOffset = (int) middleHeight;
+                if (savedScrollPosition == 0 && !allowPullingDown && savedScrollOffset > middleHeight) {
+                    savedScrollOffset = middleHeight;
                 }
 
                 layoutManager.scrollToPositionWithOffset(position, view.getTop() - listView.getPaddingTop());
@@ -6320,7 +6322,7 @@ public class ProfileActivityV3 extends BaseFragment implements SharedMediaLayout
                     if (loadedScale > 0) {
                         canvas.save();
                         canvas.clipRect(0, 0, getMeasuredWidth(), y1);
-                        StarGiftPatterns.drawProfilePattern(canvas, emoji, getMeasuredWidth(), ((actionBar.getOccupyStatusBar() ? AndroidUtilities.statusBarHeight : 0) + dp(144)) - (1f - extraHeight / (int) middleHeight) * dp(50), Math.min(1f, extraHeight / (int) middleHeight), full);
+                        StarGiftPatterns.drawProfilePattern(canvas, emoji, getMeasuredWidth(), ((actionBar.getOccupyStatusBar() ? AndroidUtilities.statusBarHeight : 0) + dp(144)) - (1f - extraHeight / middleHeight) * dp(50), Math.min(1f, extraHeight / middleHeight), full);
                         canvas.restore();
                     }
                 }
@@ -6582,7 +6584,7 @@ public class ProfileActivityV3 extends BaseFragment implements SharedMediaLayout
     /** READY */
     private void collapseAvatarInstant() {
         if (allowPullingDown && currentExpandAnimatorValue > 0) {
-            layoutManager.scrollToPositionWithOffset(0, (int) middleHeight - listView.getPaddingTop());
+            layoutManager.scrollToPositionWithOffset(0, middleHeight - listView.getPaddingTop());
             listView.post(() -> {
                 needLayout(true);
                 if (expandAnimator.isRunning()) {
@@ -6619,7 +6621,7 @@ public class ProfileActivityV3 extends BaseFragment implements SharedMediaLayout
 
             if (sharedMediaRow == -1) {
                 if (isInLandscapeMode || AndroidUtilities.isTablet()) {
-                    listView.setPadding(0, (int) middleHeight, 0, 0);
+                    listView.setPadding(0, middleHeight, 0, 0);
                     expandAnimator.cancel();
                     expandAnimatorValues[0] = 1f;
                     expandAnimatorValues[1] = 0f;
@@ -6636,7 +6638,7 @@ public class ProfileActivityV3 extends BaseFragment implements SharedMediaLayout
                         holder.itemView.measure(ws, hs);
                         contentHeight += holder.itemView.getMeasuredHeight();
                     }
-                    int paddingBottom = Math.max(0, fragmentView.getMeasuredHeight() - (contentHeight + (int) middleHeight + actionBarHeight));
+                    int paddingBottom = Math.max(0, fragmentView.getMeasuredHeight() - (contentHeight + middleHeight + actionBarHeight));
                     listView.setPadding(0, listView.getPaddingTop(), 0, paddingBottom);
                 }
             }
