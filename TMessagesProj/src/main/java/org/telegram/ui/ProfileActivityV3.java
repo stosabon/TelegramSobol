@@ -12,10 +12,13 @@ import android.content.SharedPreferences;
 import android.content.pm.PackageInfo;
 import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.LinearGradient;
 import android.graphics.Paint;
 import android.graphics.PorterDuff;
 import android.graphics.PorterDuffColorFilter;
 import android.graphics.Rect;
+import android.graphics.RectF;
+import android.graphics.Shader;
 import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.Drawable;
 import android.os.Build;
@@ -31,18 +34,22 @@ import android.text.style.ForegroundColorSpan;
 import android.text.style.URLSpan;
 import android.text.util.Linkify;
 import android.util.Log;
+import android.util.Property;
 import android.util.SparseArray;
 import android.util.SparseIntArray;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.accessibility.AccessibilityNodeInfo;
 import android.widget.FrameLayout;
 
 import androidx.annotation.Keep;
 import androidx.annotation.NonNull;
 import androidx.core.content.ContextCompat;
+import androidx.core.graphics.ColorUtils;
 import androidx.recyclerview.widget.DiffUtil;
 import androidx.recyclerview.widget.LinearLayoutManager;
+import androidx.recyclerview.widget.LinearSmoothScrollerCustom;
 import androidx.recyclerview.widget.RecyclerView;
 
 import org.telegram.PhoneFormat.PhoneFormat;
@@ -52,6 +59,8 @@ import org.telegram.messenger.BuildVars;
 import org.telegram.messenger.ContactsController;
 import org.telegram.messenger.DialogObject;
 import org.telegram.messenger.Emoji;
+import org.telegram.messenger.ImageLocation;
+import org.telegram.messenger.ImageReceiver;
 import org.telegram.messenger.LocaleController;
 import org.telegram.messenger.NotificationCenter;
 import org.telegram.messenger.NotificationsController;
@@ -72,6 +81,7 @@ import org.telegram.tgnet.tl.TL_bots;
 import org.telegram.tgnet.tl.TL_fragment;
 import org.telegram.tgnet.tl.TL_stars;
 import org.telegram.ui.ActionBar.ActionBar;
+import org.telegram.ui.ActionBar.ActionBarMenu;
 import org.telegram.ui.ActionBar.BaseFragment;
 import org.telegram.ui.ActionBar.Theme;
 import org.telegram.ui.Business.ProfileHoursCell;
@@ -88,9 +98,15 @@ import org.telegram.ui.Cells.TextCheckCell;
 import org.telegram.ui.Cells.TextDetailCell;
 import org.telegram.ui.Cells.TextInfoPrivacyCell;
 import org.telegram.ui.Cells.UserCell;
+import org.telegram.ui.Components.AnimatedColor;
 import org.telegram.ui.Components.AnimatedEmojiDrawable;
 import org.telegram.ui.Components.AnimatedEmojiSpan;
+import org.telegram.ui.Components.AnimatedFileDrawable;
+import org.telegram.ui.Components.AnimatedFloat;
+import org.telegram.ui.Components.AnimationProperties;
+import org.telegram.ui.Components.BackupImageView;
 import org.telegram.ui.Components.BulletinFactory;
+import org.telegram.ui.Components.ChatActivityInterface;
 import org.telegram.ui.Components.CubicBezierInterpolator;
 import org.telegram.ui.Components.IdenticonDrawable;
 import org.telegram.ui.Components.ImageUpdater;
@@ -105,6 +121,7 @@ import org.telegram.ui.Components.SizeNotifierFrameLayout;
 import org.telegram.ui.Components.UndoView;
 import org.telegram.ui.Gifts.GiftSheet;
 import org.telegram.ui.Stars.BotStarsController;
+import org.telegram.ui.Stars.StarGiftPatterns;
 import org.telegram.ui.Stars.StarsController;
 import org.telegram.ui.Stars.StarsIntroActivity;
 import org.telegram.ui.Stories.recorder.ButtonWithCounterView;
@@ -140,6 +157,9 @@ public class ProfileActivityV3 extends BaseFragment implements SharedMediaLayout
     private LinearLayoutManager layoutManager;
     private ListAdapter listAdapter;
     private RecyclerListView listView;
+
+    private AvatarImageView avatarImage;
+
 
     private boolean isInLandscapeMode; // TODO check set
     private boolean allowPullingDown;
@@ -422,7 +442,8 @@ public class ProfileActivityV3 extends BaseFragment implements SharedMediaLayout
     @Override
     public View createView(Context context) {
         Log.e("STAS", "createView" + " sharedMediaLayout = " + sharedMediaLayout);
-
+        Theme.createProfileResources(context);
+        Theme.createChatResources(context, false);
         BaseFragment lastFragment = parentLayout.getLastFragment();
         if (lastFragment instanceof ChatActivity && ((ChatActivity) lastFragment).themeDelegate != null && ((ChatActivity) lastFragment).themeDelegate.getCurrentTheme() != null) {
             resourcesProvider = lastFragment.getResourceProvider();
@@ -444,13 +465,15 @@ public class ProfileActivityV3 extends BaseFragment implements SharedMediaLayout
         fragmentView.setWillNotDraw(false);
         contentView = ((SizeNotifierFrameLayout) fragmentView);
         FrameLayout frameLayout = (FrameLayout) fragmentView;
+
         initSharedMediaLayout(context);
         initListView(context);
         frameLayout.addView(listView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT));
 
+        initAvatarImage(context);
+
         undoView = new UndoView(context, null, false, resourcesProvider);
         frameLayout.addView(undoView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, Gravity.BOTTOM | Gravity.LEFT, 8, 0, 8, 8));
-
 
         if (userId != 0) {
             if (imageUpdater != null) {
@@ -465,6 +488,7 @@ public class ProfileActivityV3 extends BaseFragment implements SharedMediaLayout
             savedScrollOffset = 0;
         }
         // test region
+        updateRowsIds();
         listAdapter.notifyDataSetChanged();
         // end test region
         return fragmentView;
@@ -562,9 +586,47 @@ public class ProfileActivityV3 extends BaseFragment implements SharedMediaLayout
         sharedMediaLayout.setLayoutParams(new RecyclerView.LayoutParams(RecyclerView.LayoutParams.MATCH_PARENT, RecyclerView.LayoutParams.MATCH_PARENT));
     }
 
+    private void initAvatarImage(Context context) {
+        avatarImage = new AvatarImageView(context) {
+            @Override
+            public void onInitializeAccessibilityNodeInfo(AccessibilityNodeInfo info) {
+                super.onInitializeAccessibilityNodeInfo(info);
+                if (getImageReceiver().hasNotThumb()) {
+                    info.setText(LocaleController.getString(R.string.AccDescrProfilePicture));
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                        info.addAction(new AccessibilityNodeInfo.AccessibilityAction(AccessibilityNodeInfo.ACTION_CLICK, LocaleController.getString(R.string.Open)));
+                        info.addAction(new AccessibilityNodeInfo.AccessibilityAction(AccessibilityNodeInfo.ACTION_LONG_CLICK, LocaleController.getString(R.string.AccDescrOpenInPhotoViewer)));
+                    }
+                } else {
+                    info.setVisibleToUser(false);
+                }
+            }
+
+            @Override
+            protected void dispatchDraw(Canvas canvas) {
+                super.dispatchDraw(canvas);
+                if (animatedEmojiDrawable != null && animatedEmojiDrawable.getImageReceiver() != null) {
+                    animatedEmojiDrawable.getImageReceiver().startAnimation();
+                }
+            }
+        };
+    }
+
     @Override
     public void scrollToSharedMedia() {
-
+        scrollToSharedMedia(false);
+    }
+    public void scrollToSharedMedia(boolean animated) {
+        if (sharedMediaRow >= 0) {
+            if (animated) {
+                LinearSmoothScrollerCustom linearSmoothScroller = new LinearSmoothScrollerCustom(getContext(), LinearSmoothScrollerCustom.POSITION_TOP, .6f);
+                linearSmoothScroller.setTargetPosition(sharedMediaRow);
+                linearSmoothScroller.setOffset(-listView.getPaddingTop());
+                layoutManager.startSmoothScroll(linearSmoothScroller);
+            } else {
+                layoutManager.scrollToPositionWithOffset(sharedMediaRow, -listView.getPaddingTop());
+            }
+        }
     }
 
     @Override
@@ -2647,6 +2709,210 @@ public class ProfileActivityV3 extends BaseFragment implements SharedMediaLayout
         //}
         if (listView != null) {
             listView.setTranslateSelectorPosition(bizHoursRow);
+        }
+    }
+
+    public static class AvatarImageView extends BackupImageView {
+
+        private final RectF rect = new RectF();
+        private final Paint placeholderPaint;
+        public boolean drawAvatar = true;
+        public float bounceScale = 1f;
+
+        private float crossfadeProgress;
+        private ImageReceiver animateFromImageReceiver;
+
+        private ImageReceiver foregroundImageReceiver;
+        private float foregroundAlpha;
+        private ImageReceiver.BitmapHolder drawableHolder;
+        boolean drawForeground = true;
+        float progressToExpand;
+
+        ProfileGalleryView avatarsViewPager;
+        private boolean hasStories;
+        private float progressToInsets = 1f;
+
+        public void setAvatarsViewPager(ProfileGalleryView avatarsViewPager) {
+            this.avatarsViewPager = avatarsViewPager;
+        }
+
+        public AvatarImageView(Context context) {
+            super(context);
+            foregroundImageReceiver = new ImageReceiver(this);
+            placeholderPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+            placeholderPaint.setColor(Color.BLACK);
+        }
+
+        public void setAnimateFromImageReceiver(ImageReceiver imageReceiver) {
+            this.animateFromImageReceiver = imageReceiver;
+        }
+
+        public void setCrossfadeProgress(float crossfadeProgress) {
+            this.crossfadeProgress = crossfadeProgress;
+            invalidate();
+        }
+
+        public static Property<ProfileActivityV3.AvatarImageView, Float> CROSSFADE_PROGRESS = new AnimationProperties.FloatProperty<ProfileActivityV3.AvatarImageView>("crossfadeProgress") {
+            @Override
+            public void setValue(ProfileActivityV3.AvatarImageView object, float value) {
+                object.setCrossfadeProgress(value);
+            }
+            @Override
+            public Float get(ProfileActivityV3.AvatarImageView object) {
+                return object.crossfadeProgress;
+            }
+        };
+
+        public void setForegroundImage(ImageLocation imageLocation, String imageFilter, Drawable thumb) {
+            foregroundImageReceiver.setImage(imageLocation, imageFilter, thumb, 0, null, null, 0);
+            if (drawableHolder != null) {
+                drawableHolder.release();
+                drawableHolder = null;
+            }
+        }
+
+        public void setForegroundImageDrawable(ImageReceiver.BitmapHolder holder) {
+            if (holder != null) {
+                foregroundImageReceiver.setImageBitmap(holder.drawable);
+            }
+            if (drawableHolder != null) {
+                drawableHolder.release();
+                drawableHolder = null;
+            }
+            drawableHolder = holder;
+        }
+
+        public float getForegroundAlpha() {
+            return foregroundAlpha;
+        }
+
+        public void setForegroundAlpha(float value) {
+            foregroundAlpha = value;
+            invalidate();
+        }
+
+        public void clearForeground() {
+            AnimatedFileDrawable drawable = foregroundImageReceiver.getAnimation();
+            if (drawable != null) {
+                drawable.removeSecondParentView(this);
+            }
+            foregroundImageReceiver.clearImage();
+            if (drawableHolder != null) {
+                drawableHolder.release();
+                drawableHolder = null;
+            }
+            foregroundAlpha = 0f;
+            invalidate();
+        }
+
+        protected void onDetachedFromWindow() {
+            super.onDetachedFromWindow();
+            foregroundImageReceiver.onDetachedFromWindow();
+            if (drawableHolder != null) {
+                drawableHolder.release();
+                drawableHolder = null;
+            }
+        }
+
+        @Override
+        protected void onAttachedToWindow() {
+            super.onAttachedToWindow();
+            foregroundImageReceiver.onAttachedToWindow();
+        }
+
+        @Override
+        public void setRoundRadius(int value) {
+            super.setRoundRadius(value);
+            foregroundImageReceiver.setRoundRadius(value);
+        }
+
+        @Override
+        protected void onDraw(Canvas canvas) {
+            ImageReceiver imageReceiver = animatedEmojiDrawable != null ? animatedEmojiDrawable.getImageReceiver() : this.imageReceiver;
+            canvas.save();
+            canvas.scale(bounceScale, bounceScale, getMeasuredWidth() / 2f, getMeasuredHeight() / 2f);
+            float inset = hasStories ? (int) AndroidUtilities.dpf2(3.5f) : 0;
+            inset *= (1f - progressToExpand);
+            inset *= progressToInsets * (1f - foregroundAlpha);
+            float alpha = 1.0f;
+            if (animateFromImageReceiver != null) {
+                alpha *= 1.0f - crossfadeProgress;
+                if (crossfadeProgress > 0.0f) {
+                    final float fromAlpha = crossfadeProgress;
+                    final float wasImageX = animateFromImageReceiver.getImageX();
+                    final float wasImageY = animateFromImageReceiver.getImageY();
+                    final float wasImageW = animateFromImageReceiver.getImageWidth();
+                    final float wasImageH = animateFromImageReceiver.getImageHeight();
+                    final float wasAlpha = animateFromImageReceiver.getAlpha();
+                    animateFromImageReceiver.setImageCoords(inset, inset, getMeasuredWidth() - inset * 2f, getMeasuredHeight() - inset * 2f);
+                    animateFromImageReceiver.setAlpha(fromAlpha);
+                    animateFromImageReceiver.draw(canvas);
+                    animateFromImageReceiver.setImageCoords(wasImageX, wasImageY, wasImageW, wasImageH);
+                    animateFromImageReceiver.setAlpha(wasAlpha);
+                }
+            }
+            if (imageReceiver != null && alpha > 0 && (foregroundAlpha < 1f || !drawForeground)) {
+                imageReceiver.setImageCoords(inset, inset, getMeasuredWidth() - inset * 2f, getMeasuredHeight() - inset * 2f);
+                final float wasAlpha = imageReceiver.getAlpha();
+                imageReceiver.setAlpha(wasAlpha * alpha);
+                if (drawAvatar) {
+                    imageReceiver.draw(canvas);
+                }
+                imageReceiver.setAlpha(wasAlpha);
+            }
+            if (foregroundAlpha > 0f && drawForeground && alpha > 0) {
+                if (foregroundImageReceiver.getDrawable() != null) {
+                    foregroundImageReceiver.setImageCoords(inset, inset, getMeasuredWidth() - inset * 2f, getMeasuredHeight() - inset * 2f);
+                    foregroundImageReceiver.setAlpha(alpha * foregroundAlpha);
+                    foregroundImageReceiver.draw(canvas);
+                } else {
+                    rect.set(0f, 0f, getMeasuredWidth(), getMeasuredHeight());
+                    placeholderPaint.setAlpha((int) (alpha * foregroundAlpha * 255f));
+                    final int radius = foregroundImageReceiver.getRoundRadius()[0];
+                    canvas.drawRoundRect(rect, radius, radius, placeholderPaint);
+                }
+            }
+            canvas.restore();
+        }
+
+        @Override
+        public void invalidate() {
+            super.invalidate();
+            if (avatarsViewPager != null) {
+                avatarsViewPager.invalidate();
+            }
+        }
+
+        public void setProgressToStoriesInsets(float progressToInsets) {
+            if (progressToInsets == this.progressToInsets) {
+                return;
+            }
+            this.progressToInsets = progressToInsets;
+            invalidate();
+        }
+
+        public void drawForeground(boolean drawForeground) {
+            this.drawForeground = drawForeground;
+        }
+
+        public ChatActivityInterface getPrevFragment() {
+            return null;
+        }
+
+        public void setHasStories(boolean hasStories) {
+            if (this.hasStories == hasStories) {
+                return;
+            }
+            this.hasStories = hasStories;
+            invalidate();
+        }
+
+        public void setProgressToExpand(float animatedFracture) {
+            if (progressToExpand == animatedFracture) {
+                return;
+            }
+            progressToExpand = animatedFracture;
+            invalidate();
         }
     }
 }
