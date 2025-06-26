@@ -1,5 +1,6 @@
 package org.telegram.ui;
 
+import static androidx.core.view.ViewCompat.TYPE_TOUCH;
 import static org.telegram.messenger.AndroidUtilities.dp;
 import static org.telegram.messenger.LocaleController.formatPluralString;
 import static org.telegram.messenger.LocaleController.formatString;
@@ -47,6 +48,9 @@ import androidx.annotation.Keep;
 import androidx.annotation.NonNull;
 import androidx.core.content.ContextCompat;
 import androidx.core.graphics.ColorUtils;
+import androidx.core.view.NestedScrollingParent3;
+import androidx.core.view.NestedScrollingParentHelper;
+import androidx.core.view.ViewCompat;
 import androidx.recyclerview.widget.DiffUtil;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.LinearSmoothScrollerCustom;
@@ -277,7 +281,7 @@ public class ProfileActivityV3 extends BaseFragment implements SharedMediaLayout
     private final ArrayList<TLRPC.ChatParticipant> visibleChatParticipants = new ArrayList<>();
     private final ArrayList<Integer> visibleSortedUsers = new ArrayList<>();
 
-    private SizeNotifierFrameLayout contentView;
+    private NestedFrameLayout contentView;
     private boolean fragmentOpened;
     private UndoView undoView;
     private RLottieDrawable cellCameraDrawable;
@@ -448,7 +452,9 @@ public class ProfileActivityV3 extends BaseFragment implements SharedMediaLayout
         if (lastFragment instanceof ChatActivity && ((ChatActivity) lastFragment).themeDelegate != null && ((ChatActivity) lastFragment).themeDelegate.getCurrentTheme() != null) {
             resourcesProvider = lastFragment.getResourceProvider();
         }
-        fragmentView = new SizeNotifierFrameLayout(context) {
+        hasOwnBackground = true;
+
+        fragmentView = new NestedFrameLayout(context) {
             @Override
             protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
                 super.onMeasure(widthMeasureSpec, heightMeasureSpec);
@@ -463,7 +469,7 @@ public class ProfileActivityV3 extends BaseFragment implements SharedMediaLayout
             }
         };
         fragmentView.setWillNotDraw(false);
-        contentView = ((SizeNotifierFrameLayout) fragmentView);
+        contentView = ((NestedFrameLayout) fragmentView);
         FrameLayout frameLayout = (FrameLayout) fragmentView;
 
         initSharedMediaLayout(context);
@@ -2913,6 +2919,131 @@ public class ProfileActivityV3 extends BaseFragment implements SharedMediaLayout
             }
             progressToExpand = animatedFracture;
             invalidate();
+        }
+    }
+
+    private class NestedFrameLayout extends SizeNotifierFrameLayout implements NestedScrollingParent3 {
+
+        private NestedScrollingParentHelper nestedScrollingParentHelper;
+
+        public NestedFrameLayout(Context context) {
+            super(context);
+            nestedScrollingParentHelper = new NestedScrollingParentHelper(this);
+        }
+
+        @Override
+        public void onNestedScroll(View target, int dxConsumed, int dyConsumed, int dxUnconsumed, int dyUnconsumed, int type, int[] consumed) {
+            try {
+                if (target == listView && sharedMediaLayoutAttached) {
+                    RecyclerListView innerListView = sharedMediaLayout.getCurrentListView();
+                    int top = sharedMediaLayout.getTop();
+                    if (top == 0) {
+                        consumed[1] = dyUnconsumed;
+                        innerListView.scrollBy(0, dyUnconsumed);
+                    }
+                }
+                // TODO implement this logic
+                //if (dyConsumed != 0 && type == TYPE_TOUCH) {
+                //    hideFloatingButton(!(sharedMediaLayout == null || sharedMediaLayout.getClosestTab() == SharedMediaLayout.TAB_STORIES || sharedMediaLayout.getClosestTab() == SharedMediaLayout.TAB_ARCHIVED_STORIES) || dyConsumed > 0);
+                //}
+            } catch (Throwable e) {
+                FileLog.e(e);
+                AndroidUtilities.runOnUIThread(() -> {
+                    try {
+                        RecyclerListView innerListView = sharedMediaLayout.getCurrentListView();
+                        if (innerListView != null && innerListView.getAdapter() != null) {
+                            innerListView.getAdapter().notifyDataSetChanged();
+                        }
+                    } catch (Throwable e2) {
+
+                    }
+                });
+            }
+        }
+
+        @Override
+        public void onNestedScroll(View target, int dxConsumed, int dyConsumed, int dxUnconsumed, int dyUnconsumed, int type) {
+
+        }
+
+        @Override
+        public boolean onNestedPreFling(View target, float velocityX, float velocityY) {
+            return super.onNestedPreFling(target, velocityX, velocityY);
+        }
+
+        @Override
+        public void onNestedPreScroll(View target, int dx, int dy, int[] consumed, int type) {
+            if (target == listView && sharedMediaRow != -1 && sharedMediaLayoutAttached) {
+                boolean searchVisible = actionBar.isSearchFieldVisible();
+                int t = sharedMediaLayout.getTop();
+                if (dy < 0) {
+                    boolean scrolledInner = false;
+                    if (t <= 0) {
+                        RecyclerListView innerListView = sharedMediaLayout.getCurrentListView();
+                        if (innerListView != null) {
+                            LinearLayoutManager linearLayoutManager = (LinearLayoutManager) innerListView.getLayoutManager();
+                            int pos = linearLayoutManager.findFirstVisibleItemPosition();
+                            if (pos != RecyclerView.NO_POSITION) {
+                                RecyclerView.ViewHolder holder = innerListView.findViewHolderForAdapterPosition(pos);
+                                int top = holder != null ? holder.itemView.getTop() : -1;
+                                int paddingTop = innerListView.getPaddingTop();
+                                if (top != paddingTop || pos != 0) {
+                                    consumed[1] = pos != 0 ? dy : Math.max(dy, (top - paddingTop));
+                                    innerListView.scrollBy(0, dy);
+                                    scrolledInner = true;
+                                }
+                            }
+                        }
+                    }
+                    if (searchVisible) {
+                        if (!scrolledInner && t < 0) {
+                            consumed[1] = dy - Math.max(t, dy);
+                        } else {
+                            consumed[1] = dy;
+                        }
+                    }
+                } else {
+                    if (searchVisible) {
+                        RecyclerListView innerListView = sharedMediaLayout.getCurrentListView();
+                        consumed[1] = dy;
+                        if (t > 0) {
+                            consumed[1] -= dy;
+                        }
+                        if (innerListView != null && consumed[1] > 0) {
+                            innerListView.scrollBy(0, consumed[1]);
+                        }
+                    }
+                }
+            }
+        }
+
+        @Override
+        public boolean onStartNestedScroll(View child, View target, int axes, int type) {
+            return sharedMediaRow != -1 && axes == ViewCompat.SCROLL_AXIS_VERTICAL;
+        }
+
+        @Override
+        public void onNestedScrollAccepted(View child, View target, int axes, int type) {
+            nestedScrollingParentHelper.onNestedScrollAccepted(child, target, axes);
+        }
+
+        @Override
+        public void onStopNestedScroll(View target, int type) {
+            nestedScrollingParentHelper.onStopNestedScroll(target);
+        }
+
+        @Override
+        public void onStopNestedScroll(View child) {
+
+        }
+
+        @Override
+        protected void drawList(Canvas blurCanvas, boolean top, ArrayList<IViewWithInvalidateCallback> views) {
+            super.drawList(blurCanvas, top, views);
+            blurCanvas.save();
+            blurCanvas.translate(0, listView.getY());
+            sharedMediaLayout.drawListForBlur(blurCanvas, views);
+            blurCanvas.restore();
         }
     }
 }
