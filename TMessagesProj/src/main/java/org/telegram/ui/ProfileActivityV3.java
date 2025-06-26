@@ -74,6 +74,7 @@ import org.telegram.messenger.BuildVars;
 import org.telegram.messenger.ContactsController;
 import org.telegram.messenger.DialogObject;
 import org.telegram.messenger.Emoji;
+import org.telegram.messenger.FileLoader;
 import org.telegram.messenger.FlagSecureReason;
 import org.telegram.messenger.ImageLocation;
 import org.telegram.messenger.ImageReceiver;
@@ -134,6 +135,7 @@ import org.telegram.ui.Components.BulletinFactory;
 import org.telegram.ui.Components.CanvasButton;
 import org.telegram.ui.Components.ChatActivityInterface;
 import org.telegram.ui.Components.CubicBezierInterpolator;
+import org.telegram.ui.Components.EmojiPacksAlert;
 import org.telegram.ui.Components.FragmentContextView;
 import org.telegram.ui.Components.IdenticonDrawable;
 import org.telegram.ui.Components.ImageUpdater;
@@ -146,6 +148,7 @@ import org.telegram.ui.Components.RecyclerListView;
 import org.telegram.ui.Components.SharedMediaLayout;
 import org.telegram.ui.Components.SizeNotifierFrameLayout;
 import org.telegram.ui.Components.UndoView;
+import org.telegram.ui.Components.VectorAvatarThumbDrawable;
 import org.telegram.ui.Gifts.GiftSheet;
 import org.telegram.ui.Stars.BotStarsController;
 import org.telegram.ui.Stars.StarGiftPatterns;
@@ -194,6 +197,7 @@ public class ProfileActivityV3 extends BaseFragment implements SharedMediaLayout
     private ImageView ttlIconView;
     private boolean openAnimationInProgress;
     private boolean isInLandscapeMode; // TODO check set
+    private HashMap<Integer, Integer> positionToOffset = new HashMap<>();
     private boolean allowPullingDown;
     private boolean isPulledDown; // TODO check set
     private boolean openingAvatar; // TODO check set
@@ -383,6 +387,62 @@ public class ProfileActivityV3 extends BaseFragment implements SharedMediaLayout
     };
     private MessagesController.PeerColor peerColor;
     private Rect rect = new Rect();
+
+    /** READY */
+    private PhotoViewer.PhotoViewerProvider provider = new PhotoViewer.EmptyPhotoViewerProvider() {
+
+        @Override
+        public PhotoViewer.PlaceProviderObject getPlaceForPhoto(MessageObject messageObject, TLRPC.FileLocation fileLocation, int index, boolean needPreview, boolean closing) {
+            if (fileLocation == null) {
+                return null;
+            }
+
+            TLRPC.FileLocation photoBig = null;
+            if (userId != 0) {
+                TLRPC.User user = getMessagesController().getUser(userId);
+                if (user != null && user.photo != null && user.photo.photo_big != null) {
+                    photoBig = user.photo.photo_big;
+                }
+            } else if (chatId != 0) {
+                TLRPC.Chat chat = getMessagesController().getChat(chatId);
+                if (chat != null && chat.photo != null && chat.photo.photo_big != null) {
+                    photoBig = chat.photo.photo_big;
+                }
+            }
+
+            if (photoBig != null && photoBig.local_id == fileLocation.local_id && photoBig.volume_id == fileLocation.volume_id && photoBig.dc_id == fileLocation.dc_id) {
+                int[] coords = new int[2];
+                avatarImage.getLocationInWindow(coords);
+                PhotoViewer.PlaceProviderObject object = new PhotoViewer.PlaceProviderObject();
+                object.viewX = coords[0];
+                object.viewY = coords[1] - (Build.VERSION.SDK_INT >= 21 ? 0 : AndroidUtilities.statusBarHeight);
+                object.parentView = avatarImage;
+                object.imageReceiver = avatarImage.getImageReceiver();
+                if (userId != 0) {
+                    object.dialogId = userId;
+                } else if (chatId != 0) {
+                    object.dialogId = -chatId;
+                }
+                object.thumb = object.imageReceiver.getBitmapSafe();
+                object.size = -1;
+                object.radius = avatarImage.getImageReceiver().getRoundRadius(true);
+                object.scale = avatarContainer.getScaleX();
+                object.canEdit = userId == getUserConfig().clientUserId;
+                return object;
+            }
+            return null;
+        }
+
+        @Override
+        public void willHidePhotoViewer() {
+            avatarImage.getImageReceiver().setVisible(true, true);
+        }
+
+        @Override
+        public void openPhotoForEdit(String file, String thumb, boolean isVideo) {
+            imageUpdater.openPhotoForEdit(file, thumb, 0, isVideo);
+        }
+    };
 
     public ProfileActivityV3(Bundle args) {
         this(args, null);
@@ -855,7 +915,63 @@ public class ProfileActivityV3 extends BaseFragment implements SharedMediaLayout
         FrameLayout frameLayout = (FrameLayout) fragmentView;
 
         initSharedMediaLayout(context);
-        initListView(context);
+        listAdapter = new ListAdapter(context);
+        layoutManager = new LinearLayoutManager(context) {
+
+            @Override
+            public boolean supportsPredictiveItemAnimations() {
+                return imageUpdater != null;
+            }
+
+            @Override
+            public int scrollVerticallyBy(int dy, RecyclerView.Recycler recycler, RecyclerView.State state) {
+                final View view = layoutManager.findViewByPosition(0);
+                if (view != null && !openingAvatar) {
+                    final int canScroll = view.getTop() - (int) middleHeight;
+                    if (!allowPullingDown && canScroll > dy) {
+                        dy = canScroll;
+                        if (avatarsViewPager.hasImages() && avatarImage.getImageReceiver().hasNotThumb() && !AndroidUtilities.isAccessibilityScreenReaderEnabled() && !isInLandscapeMode && !AndroidUtilities.isTablet()) {
+                            allowPullingDown = avatarBig == null;
+                        }
+                    } else if (allowPullingDown) {
+                        if (dy >= canScroll) {
+                            dy = canScroll;
+                            allowPullingDown = false;
+                        } else if (listView.getScrollState() == RecyclerListView.SCROLL_STATE_DRAGGING) {
+                            if (!isPulledDown) {
+                                dy /= 2;
+                            }
+                        }
+                    }
+                }
+                return super.scrollVerticallyBy(dy, recycler, state);
+            }
+        };
+        layoutManager.setOrientation(LinearLayoutManager.VERTICAL);
+        listView = new RecyclerListView(context) {
+            @Override
+            public void invalidate() {
+                super.invalidate();
+                if (fragmentView != null) {
+                    fragmentView.invalidate();
+                }
+            }
+        };
+        listView.setAdapter(listAdapter);
+        listView.setLayoutManager(layoutManager);
+        listView.setOnScrollListener(new RecyclerView.OnScrollListener() {
+
+            @Override
+            public void onScrolled(RecyclerView recyclerView, int dx, int dy) {
+                checkListViewScroll();
+                if (participantsMap != null && !usersEndReached && layoutManager.findLastVisibleItemPosition() > membersEndRow - 8) {
+                    getChannelParticipants(false);
+                }
+                sharedMediaLayout.setPinnedToTop(sharedMediaLayout.getY() <= 0);
+            }
+        });
+        listView.setClipToPadding(false);
+        listView.setHideIfEmpty(false);
         frameLayout.addView(listView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT));
 
         if (banFromGroup != 0) {
@@ -964,12 +1080,59 @@ public class ProfileActivityV3 extends BaseFragment implements SharedMediaLayout
         avatarImage.setPivotX(0);
         avatarImage.setPivotY(0);
         avatarContainer.addView(avatarImage, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT));
+        avatarImage.setOnClickListener(v -> {
+            if (avatarBig != null) {
+                return;
+            }
+            if (isTopic && !getMessagesController().premiumFeaturesBlocked()) {
+                ArrayList<TLRPC.TL_forumTopic> topics = getMessagesController().getTopicsController().getTopics(chatId);
+                if (topics != null) {
+                    TLRPC.TL_forumTopic currentTopic = null;
+                    for (int i = 0; currentTopic == null && i < topics.size(); ++i) {
+                        TLRPC.TL_forumTopic topic = topics.get(i);
+                        if (topic != null && topic.id == topicId) {
+                            currentTopic = topic;
+                        }
+                    }
+                    if (currentTopic != null && currentTopic.icon_emoji_id != 0) {
+                        long documentId = currentTopic.icon_emoji_id;
+                        TLRPC.Document document = AnimatedEmojiDrawable.findDocument(currentAccount, documentId);
+                        if (document == null) {
+                            return;
+                        }
+                        Bulletin bulletin = BulletinFactory.of(this).createContainsEmojiBulletin(document, BulletinFactory.CONTAINS_EMOJI_IN_TOPIC, set -> {
+                            ArrayList<TLRPC.InputStickerSet> inputSets = new ArrayList<>(1);
+                            inputSets.add(set);
+                            EmojiPacksAlert alert = new EmojiPacksAlert(this, getParentActivity(), resourcesProvider, inputSets);
+                            showDialog(alert);
+                        });
+                        if (bulletin != null) {
+                            bulletin.show();
+                        }
+                    }
+                }
+                return;
+            }
+            if (expandAvatar()) {
+                return;
+            }
+            openAvatar();
+        });
+        avatarImage.setHasStories(needInsetForStories());
+        avatarImage.setOnLongClickListener(v -> {
+            if (avatarBig != null || isTopic) {
+                return false;
+            }
+            openAvatar();
+            return false;
+        });
         avatarsViewPager = new ProfileGalleryViewV3(context, userId != 0 ? userId : -chatId, actionBar, listView, avatarImage, getClassGuid(), null);
         if (!isTopic) {
             avatarsViewPager.setChatInfo(chatInfo);
         }
         avatarContainer2.addView(avatarsViewPager);
         avatarImage.setAvatarsViewPager(avatarsViewPager);
+        avatarImage.setHasStories(needInsetForStories());
 
         frameLayout.addView(actionBar);
 
@@ -1067,66 +1230,6 @@ public class ProfileActivityV3 extends BaseFragment implements SharedMediaLayout
         transitionAnimationInProgress = false;
     }
 
-    private void initListView(Context context) {
-        listAdapter = new ListAdapter(context);
-        layoutManager = new LinearLayoutManager(context) {
-
-            @Override
-            public boolean supportsPredictiveItemAnimations() {
-                return imageUpdater != null;
-            }
-
-            @Override
-            public int scrollVerticallyBy(int dy, RecyclerView.Recycler recycler, RecyclerView.State state) {
-                final View view = layoutManager.findViewByPosition(0);
-                if (view != null && !openingAvatar) {
-                    final int canScroll = view.getTop() - (int) middleHeight;
-                    if (!allowPullingDown && canScroll > dy) {
-                        dy = canScroll;
-                        if (avatarsViewPager.hasImages() && avatarImage.getImageReceiver().hasNotThumb() && !AndroidUtilities.isAccessibilityScreenReaderEnabled() && !isInLandscapeMode && !AndroidUtilities.isTablet()) {
-                            allowPullingDown = avatarBig == null;
-                        }
-                    } else if (allowPullingDown) {
-                        if (dy >= canScroll) {
-                            dy = canScroll;
-                            allowPullingDown = false;
-                        } else if (listView.getScrollState() == RecyclerListView.SCROLL_STATE_DRAGGING) {
-                            if (!isPulledDown) {
-                                dy /= 2;
-                            }
-                        }
-                    }
-                }
-                return super.scrollVerticallyBy(dy, recycler, state);
-            }
-        };
-        layoutManager.setOrientation(LinearLayoutManager.VERTICAL);
-        listView = new RecyclerListView(context) {
-            @Override
-            public void invalidate() {
-                super.invalidate();
-                if (fragmentView != null) {
-                    fragmentView.invalidate();
-                }
-            }
-        };
-        listView.setAdapter(listAdapter);
-        listView.setLayoutManager(layoutManager);
-        listView.setOnScrollListener(new RecyclerView.OnScrollListener() {
-
-            @Override
-            public void onScrolled(RecyclerView recyclerView, int dx, int dy) {
-                checkListViewScroll();
-                if (participantsMap != null && !usersEndReached && layoutManager.findLastVisibleItemPosition() > membersEndRow - 8) {
-                    getChannelParticipants(false);
-                }
-                sharedMediaLayout.setPinnedToTop(sharedMediaLayout.getY() <= 0);
-            }
-        });
-        listView.setClipToPadding(false);
-        listView.setHideIfEmpty(false);
-    }
-
     private void checkListViewScroll() {
         if (listView.getVisibility() != View.VISIBLE) {
             return;
@@ -1169,8 +1272,28 @@ public class ProfileActivityV3 extends BaseFragment implements SharedMediaLayout
             if (playProfileAnimation != 0) {
                 allowProfileAnimation = extraHeight != 0;
             }
-            // TODO uncomment when ready
-            //needLayout(true);
+            needLayout(true);
+        }
+    }
+
+    private void needLayout(boolean animated) {
+        final int newTop = (actionBar.getOccupyStatusBar() ? AndroidUtilities.statusBarHeight : 0) + ActionBar.getCurrentActionBarHeight();
+
+        FrameLayout.LayoutParams layoutParams;
+        if (listView != null && !openAnimationInProgress) {
+            layoutParams = (FrameLayout.LayoutParams) listView.getLayoutParams();
+            if (layoutParams.topMargin != newTop) {
+                layoutParams.topMargin = newTop;
+                listView.setLayoutParams(layoutParams);
+            }
+        }
+
+        if (avatarContainer != null) {
+            final float diff = Math.min(1f, extraHeight / AndroidUtilities.dp(88f));
+
+            listView.setTopGlowOffset((int) extraHeight);
+
+            listView.setOverScrollMode(extraHeight > AndroidUtilities.dp(88f) && extraHeight < listView.getMeasuredWidth() - newTop ? View.OVER_SCROLL_NEVER : View.OVER_SCROLL_ALWAYS);
         }
     }
 
@@ -1401,7 +1524,22 @@ public class ProfileActivityV3 extends BaseFragment implements SharedMediaLayout
 
     @Override
     public void mediaCountUpdated() {
+        if (sharedMediaLayout != null && sharedMediaPreloader != null) {
+            sharedMediaLayout.setNewMediaCounts(sharedMediaPreloader.getLastMediaCount());
+        }
+        updateSharedMediaRows();
+        updateSelectedMediaTabText();
 
+        if (userInfo != null) {
+            resumeDelayedFragmentAnimation();
+        }
+    }
+
+    private void updateSharedMediaRows() {
+        if (listAdapter == null) {
+            return;
+        }
+        updateListAnimated(false);
     }
 
     @Override
@@ -3426,6 +3564,7 @@ public class ProfileActivityV3 extends BaseFragment implements SharedMediaLayout
         }
     }
 
+    /** READY */
     public static class AvatarImageView extends BackupImageView {
 
         private final RectF rect = new RectF();
@@ -4116,5 +4255,86 @@ public class ProfileActivityV3 extends BaseFragment implements SharedMediaLayout
         //if (giftsView != null) {
         //    giftsView.setBounds(aleft, aright, atop + (actionBar.getHeight() - atop) / 2f, !animated);
         //}
+    }
+
+    /** READY */
+    private void openAvatar() {
+        if (listView.getScrollState() == RecyclerView.SCROLL_STATE_DRAGGING) {
+            return;
+        }
+        if (userId != 0) {
+            TLRPC.User user = getMessagesController().getUser(userId);
+            if (user.photo != null && user.photo.photo_big != null) {
+                PhotoViewer.getInstance().setParentActivity(ProfileActivityV3.this);
+                if (user.photo.dc_id != 0) {
+                    user.photo.photo_big.dc_id = user.photo.dc_id;
+                }
+                PhotoViewer.getInstance().openPhoto(user.photo.photo_big, provider);
+            }
+        } else if (chatId != 0) {
+            TLRPC.Chat chat = getMessagesController().getChat(chatId);
+            if (chat.photo != null && chat.photo.photo_big != null) {
+                PhotoViewer.getInstance().setParentActivity(ProfileActivityV3.this);
+                if (chat.photo.dc_id != 0) {
+                    chat.photo.photo_big.dc_id = chat.photo.dc_id;
+                }
+                ImageLocation videoLocation;
+                if (chatInfo != null && (chatInfo.chat_photo instanceof TLRPC.TL_photo) && !chatInfo.chat_photo.video_sizes.isEmpty()) {
+                    videoLocation = ImageLocation.getForPhoto(chatInfo.chat_photo.video_sizes.get(0), chatInfo.chat_photo);
+                } else {
+                    videoLocation = null;
+                }
+                PhotoViewer.getInstance().openPhotoWithVideo(chat.photo.photo_big, videoLocation, provider);
+            }
+        }
+    }
+
+    /** READY */
+    private boolean expandAvatar() {
+        if (!AndroidUtilities.isTablet() && !isInLandscapeMode && avatarImage.getImageReceiver().hasNotThumb() && !AndroidUtilities.isAccessibilityScreenReaderEnabled()) {
+            openingAvatar = true;
+            allowPullingDown = true;
+            View child = null;
+            for (int i = 0; i < listView.getChildCount(); i++) {
+                if (listView.getChildAdapterPosition(listView.getChildAt(i)) == 0) {
+                    child = listView.getChildAt(i);
+                    break;
+                }
+            }
+            if (child != null) {
+                RecyclerView.ViewHolder holder = listView.findContainingViewHolder(child);
+                if (holder != null) {
+                    Integer offset = positionToOffset.get(holder.getAdapterPosition());
+                    if (offset != null) {
+                        listView.smoothScrollBy(0, -(offset + (listView.getPaddingTop() - child.getTop() - actionBar.getMeasuredHeight())), CubicBezierInterpolator.EASE_OUT_QUINT);
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    /** READY */
+    private void setForegroundImage(boolean secondParent) {
+        Drawable drawable = avatarImage.getImageReceiver().getDrawable();
+        if (drawable instanceof VectorAvatarThumbDrawable) {
+            avatarImage.setForegroundImage(null, null, drawable);
+        } else if (drawable instanceof AnimatedFileDrawable) {
+            AnimatedFileDrawable fileDrawable = (AnimatedFileDrawable) drawable;
+            avatarImage.setForegroundImage(null, null, fileDrawable);
+            if (secondParent) {
+                fileDrawable.addSecondParentView(avatarImage);
+            }
+        } else {
+            ImageLocation location = avatarsViewPager.getImageLocation(0);
+            String filter;
+            if (location != null && location.imageType == FileLoader.IMAGE_TYPE_ANIMATION) {
+                filter = "avatar";
+            } else {
+                filter = null;
+            }
+            avatarImage.setForegroundImage(location, filter, drawable);
+        }
     }
 }
