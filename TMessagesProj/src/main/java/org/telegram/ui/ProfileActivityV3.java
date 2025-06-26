@@ -184,6 +184,8 @@ public class ProfileActivityV3 extends BaseFragment implements SharedMediaLayout
     private AvatarImageView avatarImage;
     private FrameLayout bottomButtonsContainer;
     private FrameLayout[] bottomButtonContainer;
+    private ImageView ttlIconView;
+    private FrameLayout avatarContainer;
 
     private boolean isInLandscapeMode; // TODO check set
     private boolean allowPullingDown;
@@ -353,6 +355,7 @@ public class ProfileActivityV3 extends BaseFragment implements SharedMediaLayout
 
     private Paint whitePaint = new Paint();
     private int actionBarAnimationColorFrom = 0;
+    private Paint actionBarBackgroundPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private View scrimView = null;
     private Paint scrimPaint = new Paint(Paint.ANTI_ALIAS_FLAG) {
         @Override
@@ -361,6 +364,8 @@ public class ProfileActivityV3 extends BaseFragment implements SharedMediaLayout
             fragmentView.invalidate();
         }
     };
+    private MessagesController.PeerColor peerColor;
+    private Rect rect = new Rect();
 
     public ProfileActivityV3(Bundle args) {
         this(args, null);
@@ -676,8 +681,15 @@ public class ProfileActivityV3 extends BaseFragment implements SharedMediaLayout
         fragmentView = new NestedFrameLayout(context) {
             @Override
             protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
-                super.onMeasure(widthMeasureSpec, heightMeasureSpec);
                 Log.e("STAS", "onMeasure");
+                final int actionBarHeight = ActionBar.getCurrentActionBarHeight() + (actionBar.getOccupyStatusBar() ? AndroidUtilities.statusBarHeight : 0);
+                if (listView != null) {
+                    LayoutParams layoutParams = (LayoutParams) listView.getLayoutParams();
+                    if (layoutParams.topMargin != actionBarHeight) {
+                        layoutParams.topMargin = actionBarHeight;
+                    }
+                }
+                super.onMeasure(widthMeasureSpec, heightMeasureSpec);
             }
 
             @Override
@@ -829,6 +841,8 @@ public class ProfileActivityV3 extends BaseFragment implements SharedMediaLayout
 
         initAvatarImage(context);
 
+        frameLayout.addView(actionBar);
+
         undoView = new UndoView(context, null, false, resourcesProvider);
         frameLayout.addView(undoView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, Gravity.BOTTOM | Gravity.LEFT, 8, 0, 8, 8));
 
@@ -845,6 +859,7 @@ public class ProfileActivityV3 extends BaseFragment implements SharedMediaLayout
             savedScrollOffset = 0;
         }
         scrimPaint.setAlpha(0);
+        actionBarBackgroundPaint.setColor(getThemedColor(Theme.key_listSelector));
 
         // test region
         updateRowsIds();
@@ -1074,20 +1089,6 @@ public class ProfileActivityV3 extends BaseFragment implements SharedMediaLayout
 
     @Override
     public void didReceivedNotification(int id, int account, final Object... args) {
-    }
-
-    private void checkCanSendStoryForPosting() {
-        TLRPC.Chat chat = MessagesController.getInstance(currentAccount).getChat(chatId);
-        if (!ChatObject.isBoostSupported(chat)) {
-            return;
-        }
-        StoriesController storiesController = getMessagesController().getStoriesController();
-        waitCanSendStoryRequest = true;
-        storiesController.canSendStoryFor(getDialogId(), canSend -> {
-            waitCanSendStoryRequest = false;
-            showBoostsAlert = !canSend;
-            hideFloatingButton(!(sharedMediaLayout == null || sharedMediaLayout.getClosestTab() == SharedMediaLayout.TAB_STORIES || sharedMediaLayout.getClosestTab() == SharedMediaLayout.TAB_ARCHIVED_STORIES));
-        }, false, resourcesProvider);
     }
 
     @Override
@@ -3527,5 +3528,94 @@ public class ProfileActivityV3 extends BaseFragment implements SharedMediaLayout
             });
         }
         scrimAnimatorSet.start();
+    }
+
+    @Override
+    public ActionBar createActionBar(Context context) {
+        BaseFragment lastFragment = parentLayout.getLastFragment();
+        if (lastFragment instanceof ChatActivity && ((ChatActivity) lastFragment).themeDelegate != null && ((ChatActivity) lastFragment).themeDelegate.getCurrentTheme() != null) {
+            resourcesProvider = lastFragment.getResourceProvider();
+        }
+        ActionBar actionBar = new ActionBar(context, resourcesProvider) {
+            @Override
+            public boolean onTouchEvent(MotionEvent event) {
+                avatarContainer.getHitRect(rect);
+                if (rect.contains((int) event.getX(), (int) event.getY())) {
+                    return false;
+                }
+                return super.onTouchEvent(event);
+            }
+
+            @Override
+            public void setItemsColor(int color, boolean isActionMode) {
+                super.setItemsColor(color, isActionMode);
+                if (!isActionMode && ttlIconView != null) {
+                    ttlIconView.setColorFilter(new PorterDuffColorFilter(color, PorterDuff.Mode.MULTIPLY));
+                }
+            }
+
+            @Override
+            protected void onLayout(boolean changed, int left, int top, int right, int bottom) {
+                super.onLayout(changed, left, top, right, bottom);
+                updateStoriesViewBounds(false);
+            }
+        };
+        actionBar.setForceSkipTouches(true);
+        actionBar.setBackgroundColor(Color.TRANSPARENT);
+        actionBar.setItemsBackgroundColor(peerColor != null ? 0x20ffffff : getThemedColor(Theme.key_avatar_actionBarSelectorBlue), false);
+        actionBar.setItemsColor(getThemedColor(Theme.key_actionBarDefaultIcon), false);
+        actionBar.setItemsColor(getThemedColor(Theme.key_actionBarDefaultIcon), true);
+        actionBar.setBackButtonDrawable(new BackDrawable(false));
+        actionBar.setCastShadows(false);
+        actionBar.setAddToContainer(false);
+        actionBar.setClipContent(true);
+        actionBar.setOccupyStatusBar(Build.VERSION.SDK_INT >= 21 && !AndroidUtilities.isTablet() && !inBubbleMode);
+        ImageView backButton = actionBar.getBackButton();
+        backButton.setOnLongClickListener(e -> {
+            ActionBarPopupWindow menu = BackButtonMenu.show(this, backButton, getDialogId(), topicId, resourcesProvider);
+            if (menu != null) {
+                menu.setOnDismissListener(() -> dimBehindView(false));
+                dimBehindView(backButton, 0.3f);
+                if (undoView != null) {
+                    undoView.hide(true, 1);
+                }
+                return true;
+            } else {
+                return false;
+            }
+        });
+        return actionBar;
+    }
+
+    private void updateStoriesViewBounds(boolean animated) {
+        // TODO uncomment when ready
+        //if (storyView == null && giftsView == null || actionBar == null) {
+        //    return;
+        //}
+        //float atop = actionBar.getOccupyStatusBar() ? AndroidUtilities.statusBarHeight : 0;
+        //float aleft = 0;
+        //float aright = actionBar.getWidth();
+        //
+        //if (actionBar.getBackButton() != null) {
+        //    aleft = Math.max(aleft, actionBar.getBackButton().getRight());
+        //}
+        //if (actionBar.menu != null) {
+        //    for (int i = 0; i < actionBar.menu.getChildCount(); ++i) {
+        //        View child = actionBar.menu.getChildAt(i);
+        //        if (child.getAlpha() <= 0 || child.getVisibility() != View.VISIBLE) {
+        //            continue;
+        //        }
+        //        int left = actionBar.menu.getLeft() + (int) child.getX();
+        //        if (left < aright) {
+        //            aright = AndroidUtilities.lerp(aright, left, child.getAlpha());
+        //        }
+        //    }
+        //}
+        //if (storyView != null) {
+        //    storyView.setBounds(aleft, aright, atop + (actionBar.getHeight() - atop) / 2f, !animated);
+        //}
+        //if (giftsView != null) {
+        //    giftsView.setBounds(aleft, aright, atop + (actionBar.getHeight() - atop) / 2f, !animated);
+        //}
     }
 }
