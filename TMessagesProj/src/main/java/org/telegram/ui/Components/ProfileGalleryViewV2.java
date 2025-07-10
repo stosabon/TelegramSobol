@@ -7,11 +7,19 @@ import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.LinearGradient;
 import android.graphics.Paint;
 import android.graphics.Path;
 import android.graphics.PointF;
+import android.graphics.PorterDuff;
+import android.graphics.PorterDuffXfermode;
+import android.graphics.Rect;
 import android.graphics.RectF;
+import android.graphics.RenderEffect;
+import android.graphics.RenderNode;
+import android.graphics.Shader;
 import android.graphics.drawable.Drawable;
+import android.os.Build;
 import android.text.TextUtils;
 import android.util.SparseArray;
 import android.view.MotionEvent;
@@ -38,11 +46,10 @@ import org.telegram.tgnet.TLRPC;
 import org.telegram.ui.ActionBar.ActionBar;
 import org.telegram.ui.PinchToZoomHelper;
 import org.telegram.ui.ProfileActivity;
-import org.telegram.ui.ProfileActivityOld;
 
 import java.util.ArrayList;
 
-public class ProfileGalleryView extends CircularViewPager implements NotificationCenter.NotificationCenterDelegate {
+public class ProfileGalleryViewV2 extends CircularViewPager implements NotificationCenter.NotificationCenterDelegate {
 
     private final PointF downPoint = new PointF();
     private final int touchSlop;
@@ -96,6 +103,9 @@ public class ProfileGalleryView extends CircularViewPager implements Notificatio
     private int fallbackPhotoIndex = -1;
     private TLRPC.GroupCallParticipant participant;
 
+    private int blurHeight = -1;
+    private int gradientHeight;
+
     private int imagesLayerNum;
 
     public void setHasActiveVideo(boolean hasActiveVideo) {
@@ -119,6 +129,11 @@ public class ProfileGalleryView extends CircularViewPager implements Notificatio
         prevImageLocation = null;
     }
 
+    public void setBlurHeight(int blurHeight, int gradientHeight) {
+        this.blurHeight = blurHeight;
+        this.gradientHeight = gradientHeight;
+    }
+
     private static class Item {
         boolean isActiveVideo;
         private View textureViewStubView;
@@ -140,7 +155,7 @@ public class ProfileGalleryView extends CircularViewPager implements Notificatio
     int selectedPage;
     int prevPage;
 
-    public ProfileGalleryView(Context context, ActionBar parentActionBar, RecyclerListView parentListView, Callback callback) {
+    public ProfileGalleryViewV2(Context context, ActionBar parentActionBar, RecyclerListView parentListView, Callback callback) {
         super(context);
         setOffscreenPageLimit(2);
 
@@ -266,7 +281,7 @@ public class ProfileGalleryView extends CircularViewPager implements Notificatio
         imagesLayerNum = value;
     }
 
-    public ProfileGalleryView(Context context, long dialogId, ActionBar parentActionBar, RecyclerListView parentListView, ProfileActivityOld.AvatarImageView parentAvatarImageView, int parentClassGuid, Callback callback) {
+    public ProfileGalleryViewV2(Context context, long dialogId, ActionBar parentActionBar, RecyclerListView parentListView, ProfileActivity.AvatarImageView parentAvatarImageView, int parentClassGuid, Callback callback) {
         super(context);
         setVisibility(View.GONE);
         setOverScrollMode(View.OVER_SCROLL_NEVER);
@@ -1091,7 +1106,7 @@ public class ProfileGalleryView extends CircularViewPager implements Notificatio
         private BackupImageView parentAvatarImageView;
         private final ActionBar parentActionBar;
 
-        public ViewPagerAdapter(Context context, ProfileActivityOld.AvatarImageView parentAvatarImageView, ActionBar parentActionBar) {
+        public ViewPagerAdapter(Context context, ProfileActivity.AvatarImageView parentAvatarImageView, ActionBar parentActionBar) {
             this.context = context;
             this.parentAvatarImageView = parentAvatarImageView;
             this.parentActionBar = parentActionBar;
@@ -1142,6 +1157,11 @@ public class ProfileGalleryView extends CircularViewPager implements Notificatio
             }
             if (item.imageView == null) {
                 item.imageView = new AvatarImageView(context, position, placeholderPaint);
+                if (!item.imageView.isDeviceBlurSupported()) {
+                    item.imageView.setBlurAllowed(true);
+                    item.imageView.setHasBlur(true);
+                    item.imageView.setDrawBlurredImageIfAllowed(false);
+                }
                 imageViews.set(position, item.imageView);
             }
 
@@ -1380,6 +1400,7 @@ public class ProfileGalleryView extends CircularViewPager implements Notificatio
             this.position = position;
             this.placeholderPaint = placeholderPaint;
             setLayerNum(imagesLayerNum);
+            gradientPaint.setXfermode(new PorterDuffXfermode(PorterDuff.Mode.DST_IN));
         }
 
         @Override
@@ -1390,13 +1411,95 @@ public class ProfileGalleryView extends CircularViewPager implements Notificatio
                 int paddingBottom = AndroidUtilities.dp2(80f);
                 radialProgress.setProgressRect((w - radialProgressSize) / 2, paddingTop + (h - paddingTop - paddingBottom - radialProgressSize) / 2, (w + radialProgressSize) / 2, paddingTop + (h - paddingTop - paddingBottom + radialProgressSize) / 2);
             }
+            if (blurHeight != -1) {
+                gradientShader = new LinearGradient(
+                        0, h - blurHeight, 0, h - blurHeight + gradientHeight,
+                        0x00FFFFFF, 0xFFFFFFFF,
+                        Shader.TileMode.CLAMP);
+                gradientPaint.setShader(gradientShader);
+            }
         }
 
+        private RenderNode contentNode;
+        private RenderNode blurNode;
+        private final Paint gradientPaint = new Paint();;
+        private Shader gradientShader;
+        private final Rect srcBlurBitmapRect = new Rect();
+        private final Rect dstBlurBitmapRect = new Rect();
+
         @Override
-        protected void onDraw(Canvas canvas) {
+        public void onDraw(Canvas canvas) {
             if (pinchToZoomHelper != null && pinchToZoomHelper.isInOverlayMode()) {
                 return;
             }
+            int width = getWidth();
+            int height = getHeight();
+            if (gradientShader == null && blurHeight != -1) {
+                gradientShader = new LinearGradient(
+                        0, height - blurHeight, 0, height - blurHeight + gradientHeight,
+                        0x00FFFFFF, 0xFFFFFFFF,
+                        Shader.TileMode.CLAMP);
+                gradientPaint.setShader(gradientShader);
+            }
+            // Draw native blur or just blurred bitmap if not supported
+            if (isDeviceBlurSupported() && canvas.isHardwareAccelerated() && blurHeight != -1) {
+                if (contentNode == null) {
+                    contentNode = new RenderNode("pagerImageContent");
+                }
+                contentNode.setPosition(0, 0, width, height);
+                Canvas contentCanvas = contentNode.beginRecording();
+                drawContentBeforeOnDraw(contentCanvas);
+                super.onDraw(contentCanvas);
+                drawContentAfterOnDraw(contentCanvas);
+                contentNode.endRecording();
+                canvas.drawRenderNode(contentNode);
+                if (blurNode == null) {
+                    blurNode = new RenderNode("pagerImageBlur");
+                }
+                blurNode.setPosition(0, 0, width, blurHeight);
+                blurNode.setTranslationY(height - blurHeight);
+                blurNode.setRenderEffect(RenderEffect.createBlurEffect(30f, 30f, Shader.TileMode.CLAMP));
+
+                Canvas blurCanvas = blurNode.beginRecording();
+                blurCanvas.translate(0f, -(height - blurHeight));
+                blurCanvas.drawRenderNode(contentNode);
+                blurNode.endRecording();
+
+                int saveCount = canvas.saveLayer(0, height - blurHeight, width, height, null);
+                canvas.drawRenderNode(blurNode);
+                canvas.drawRect(0, height - blurHeight, width,  height - blurHeight + gradientHeight, gradientPaint);
+                canvas.restoreToCount(saveCount);
+            } else {
+                drawContentBeforeOnDraw(canvas);
+                super.onDraw(canvas);
+                drawContentAfterOnDraw(canvas);
+
+                if (blurHeight != -1) {
+                    Bitmap blurredBitmap = blurImageReceiver.getBitmap();
+                    if (blurredBitmap != null) {
+                        int bmpWidth = blurredBitmap.getWidth();
+                        int bmpHeight = blurredBitmap.getHeight();
+
+                        if (bmpWidth > 0 && bmpHeight > 0) {
+                            int saveCount = canvas.saveLayer(0, height - blurHeight, width, height, null, Canvas.ALL_SAVE_FLAG);
+                            int srcTop = (int) (bmpHeight * ((float) blurHeight / height));
+                            srcBlurBitmapRect.set(0, bmpHeight - srcTop, blurredBitmap.getWidth(), bmpHeight);
+                            int dstTop = height - blurHeight;
+                            dstBlurBitmapRect.set(0, dstTop, width, height);
+                            canvas.drawBitmap(blurredBitmap, srcBlurBitmapRect, dstBlurBitmapRect, null);
+                            canvas.drawRect(0, height - blurHeight, width, height - blurHeight + gradientHeight, gradientPaint);
+                            canvas.restoreToCount(saveCount);
+                        }
+                    }
+                }
+            }
+        }
+
+        private boolean isDeviceBlurSupported() {
+            return Build.VERSION.SDK_INT >= Build.VERSION_CODES.S;
+        }
+
+        private void drawContentBeforeOnDraw(Canvas canvas) {
             if (radialProgress != null) {
                 int realPosition = getRealPosition(position);
                 if (hasActiveVideo) {
@@ -1468,8 +1571,9 @@ public class ProfileGalleryView extends CircularViewPager implements Notificatio
                     canvas.drawPath(path, placeholderPaint);
                 }
             }
-            super.onDraw(canvas);
+        }
 
+        private void drawContentAfterOnDraw(Canvas canvas) {
             if (radialProgress != null && radialProgress.getOverrideAlpha() > 0f) {
                 radialProgress.draw(canvas);
             }
@@ -1479,7 +1583,7 @@ public class ProfileGalleryView extends CircularViewPager implements Notificatio
         public void invalidate() {
             super.invalidate();
             if (invalidateWithParent) {
-                ProfileGalleryView.this.invalidate();
+                ProfileGalleryViewV2.this.invalidate();
             }
         }
     }

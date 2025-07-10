@@ -47,13 +47,13 @@ import org.telegram.ui.Components.AnimatedFloat;
 import org.telegram.ui.Components.AnimatedTextView;
 import org.telegram.ui.Components.CubicBezierInterpolator;
 import org.telegram.ui.Components.RadialProgress;
-import org.telegram.ui.ProfileActivity;
+import org.telegram.ui.ProfileActivityOld;
 
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
-public class ProfileStoriesView extends View implements NotificationCenter.NotificationCenterDelegate {
+public class ProfileStoriesViewOld extends View implements NotificationCenter.NotificationCenterDelegate {
 
     private static final int CIRCLES_MAX = 3;
     public static final String FRAGMENT_TRANSITION_PROPERTY = "fragmentTransitionProgress";
@@ -66,7 +66,7 @@ public class ProfileStoriesView extends View implements NotificationCenter.Notif
     private final long dialogId;
     private final boolean isTopic;
     private final View avatarContainer;
-    private final ProfileActivity.AvatarImageView avatarImage;
+    private final ProfileActivityOld.AvatarImageView avatarImage;
 
     private final AnimatedTextView.AnimatedTextDrawable titleDrawable = new AnimatedTextView.AnimatedTextDrawable(false, true, true);
 
@@ -102,7 +102,7 @@ public class ProfileStoriesView extends View implements NotificationCenter.Notif
         public StoryCircle(TL_stories.StoryItem storyItem) {
             this.storyId = storyItem.id;
             this.imageReceiver.setRoundRadius(dp(200));
-            this.imageReceiver.setParentView(ProfileStoriesView.this);
+            this.imageReceiver.setParentView(ProfileStoriesViewOld.this);
             if (attached) {
                 this.imageReceiver.onAttachedToWindow();
             }
@@ -114,9 +114,9 @@ public class ProfileStoriesView extends View implements NotificationCenter.Notif
         int index = 0;
         boolean read = false;
         float scale = 1;
-        final AnimatedFloat readAnimated = new AnimatedFloat(ProfileStoriesView.this, 420, CubicBezierInterpolator.EASE_OUT_QUINT);
-        final AnimatedFloat indexAnimated = new AnimatedFloat(ProfileStoriesView.this, 420, CubicBezierInterpolator.EASE_OUT_QUINT);
-        final AnimatedFloat scaleAnimated = new AnimatedFloat(ProfileStoriesView.this, 420, CubicBezierInterpolator.EASE_OUT_QUINT);
+        final AnimatedFloat readAnimated = new AnimatedFloat(ProfileStoriesViewOld.this, 420, CubicBezierInterpolator.EASE_OUT_QUINT);
+        final AnimatedFloat indexAnimated = new AnimatedFloat(ProfileStoriesViewOld.this, 420, CubicBezierInterpolator.EASE_OUT_QUINT);
+        final AnimatedFloat scaleAnimated = new AnimatedFloat(ProfileStoriesViewOld.this, 420, CubicBezierInterpolator.EASE_OUT_QUINT);
 
         float cachedIndex;
         float cachedScale;
@@ -141,7 +141,7 @@ public class ProfileStoriesView extends View implements NotificationCenter.Notif
 
     StoriesController storiesController;
 
-    public ProfileStoriesView(Context context, int currentAccount, long dialogId, boolean isTopic, @NonNull View avatarContainer, ProfileActivity.AvatarImageView avatarImage, Theme.ResourcesProvider resourcesProvider) {
+    public ProfileStoriesViewOld(Context context, int currentAccount, long dialogId, boolean isTopic, @NonNull View avatarContainer, ProfileActivityOld.AvatarImageView avatarImage, Theme.ResourcesProvider resourcesProvider) {
         super(context);
 
         this.currentAccount = currentAccount;
@@ -347,7 +347,7 @@ public class ProfileStoriesView extends View implements NotificationCenter.Notif
                     break;
                 }
             }
-
+            
             if (index == -1) {
                 storyItem.dialogId = dialogId;
                 StoryCircle circle = new StoryCircle(storyItem);
@@ -466,12 +466,12 @@ public class ProfileStoriesView extends View implements NotificationCenter.Notif
         newStoryBounce.addListener(new AnimatorListenerAdapter() {
             @Override
             public void onAnimationEnd(Animator animation) {
-                if (!vibrated[0]) {
-                    vibrated[0] = true;
-                    vibrateNewStory();
-                }
-                newStoryBounceT = 1;
-                invalidate();
+            if (!vibrated[0]) {
+                vibrated[0] = true;
+                vibrateNewStory();
+            }
+            newStoryBounceT = 1;
+            invalidate();
             }
         });
         newStoryBounce.setInterpolator(new OvershootInterpolator(3.0f));
@@ -677,7 +677,8 @@ public class ProfileStoriesView extends View implements NotificationCenter.Notif
                 float read = circle.cachedRead;
 
                 float r = dp(28) / 2f * scale;
-                float cx = left + r + ix;
+//                float cx = left + r + ix;
+                float cx = expandRight - w + r + ix;
                 ix += dp(18) * scale;
 
                 maxX = Math.max(maxX, cx + r);
@@ -953,9 +954,9 @@ public class ProfileStoriesView extends View implements NotificationCenter.Notif
         float cx = lerp(a.centerX(), b.centerX(), t);
         float cy = lerp(a.centerY(), b.centerY(), t);
         float r = lerp(
-                Math.min(a.width(), a.height()),
-                Math.min(b.width(), b.height()),
-                t
+            Math.min(a.width(), a.height()),
+            Math.min(b.width(), b.height()),
+            t
         ) / 2f;
         c.set(cx - r, cy - r, cx + r, cy + r);
     }
@@ -1051,7 +1052,7 @@ public class ProfileStoriesView extends View implements NotificationCenter.Notif
 
             holder.storyImage = imageReceiver;
             holder.avatarImage = null;
-            holder.view = ProfileStoriesView.this;
+            holder.view = ProfileStoriesViewOld.this;
             holder.clipTop = 0;
             holder.clipBottom = AndroidUtilities.displaySize.y;
             holder.clipParent = (View) getParent();
@@ -1107,7 +1108,7 @@ public class ProfileStoriesView extends View implements NotificationCenter.Notif
     private float tapX, tapY;
 
     private float getExpandRight() {
-        return 0;
+        return expandRight - expandRightPadAnimated.set(expandRightPad) * dp(71);
     }
 
     @Override
@@ -1152,4 +1153,3 @@ public class ProfileStoriesView extends View implements NotificationCenter.Notif
         return fragmentTransitionProgress;
     }
 }
-

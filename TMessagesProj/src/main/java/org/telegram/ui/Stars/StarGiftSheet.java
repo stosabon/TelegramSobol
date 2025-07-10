@@ -43,7 +43,6 @@ import android.text.Spanned;
 import android.text.TextPaint;
 import android.text.TextUtils;
 import android.text.style.ClickableSpan;
-import android.util.Log;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.HapticFeedbackConstants;
@@ -1993,7 +1992,7 @@ public class StarGiftSheet extends BottomSheetWithRecyclerListView implements No
                 if (currentPage.at(PAGE_WEAR) > 0) {
                     canvas.save();
                     pattern[0].setColor(patternColor);
-                    StarGiftPatterns.drawProfilePattern(canvas, pattern[0], getWidth(), height, currentPage.at(PAGE_WEAR), 1.0f);
+                    StarGiftPatterns.drawOldProfilePattern(canvas, pattern[0], getWidth(), height, currentPage.at(PAGE_WEAR), 1.0f);
                     canvas.restore();
                 }
 

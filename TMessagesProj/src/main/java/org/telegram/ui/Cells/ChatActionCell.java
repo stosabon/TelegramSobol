@@ -667,7 +667,7 @@ public class ChatActionCell extends BaseCell implements DownloadController.FileD
         } else if (messageObject.type == MessageObject.TYPE_SUGGEST_PHOTO) {
             imageReceiver.setRoundRadius((int) (stickerSize / 2f));
             imageReceiver.setAllowStartLottieAnimation(true);
-            imageReceiver.setDelegate(null);
+            imageReceiver.removeDelegate(giftStickerDelegate);
             TLRPC.TL_messageActionSuggestProfilePhoto action = (TLRPC.TL_messageActionSuggestProfilePhoto) messageObject.messageOwner.action;
 
             TLRPC.VideoSize videoSize = FileLoader.getClosestVideoSizeWithSize(action.photo.video_sizes, 1000);
@@ -834,7 +834,7 @@ public class ChatActionCell extends BaseCell implements DownloadController.FileD
             }
         } else if (messageObject.type == MessageObject.TYPE_ACTION_PHOTO) {
             imageReceiver.setAllowStartLottieAnimation(true);
-            imageReceiver.setDelegate(null);
+            imageReceiver.removeDelegate(giftStickerDelegate);
             imageReceiver.setRoundRadius(AndroidUtilities.roundMessageSize / 2);
             imageReceiver.setAutoRepeatCount(1);
             long id = messageObject.getDialogId();
@@ -877,7 +877,7 @@ public class ChatActionCell extends BaseCell implements DownloadController.FileD
             imageReceiver.setVisible(!PhotoViewer.isShowingImage(messageObject), false);
         } else {
             imageReceiver.setAllowStartLottieAnimation(true);
-            imageReceiver.setDelegate(null);
+            imageReceiver.removeDelegate(giftStickerDelegate);
             imageReceiver.setImageBitmap((Bitmap) null);
         }
         if (firstInChat && isAllChats && isSideMenued && (isForum || isMonoForum)) {

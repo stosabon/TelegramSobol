@@ -207,6 +207,7 @@ public class NotificationCenter {
     public static final int configLoaded = totalEvents++;
 
     public static final int needDeleteDialog = totalEvents++;
+    public static final int needBlockBot = totalEvents++;
 
     public static final int newEmojiSuggestionsAvailable = totalEvents++;
 

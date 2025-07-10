@@ -45,14 +45,18 @@ import android.widget.TextView;
 
 import org.telegram.messenger.AndroidUtilities;
 import org.telegram.messenger.ChatObject;
+import org.telegram.messenger.ContactsController;
 import org.telegram.messenger.DialogObject;
 import org.telegram.messenger.FileLog;
 import org.telegram.messenger.LocaleController;
+import org.telegram.messenger.MediaDataController;
 import org.telegram.messenger.MessageObject;
 import org.telegram.messenger.MessagesController;
 import org.telegram.messenger.NotificationCenter;
 import org.telegram.messenger.R;
+import org.telegram.messenger.SendMessagesHelper;
 import org.telegram.messenger.UserConfig;
+import org.telegram.messenger.UserObject;
 import org.telegram.messenger.Utilities;
 import org.telegram.messenger.voip.ConferenceCall;
 import org.telegram.tgnet.ConnectionsManager;
@@ -104,6 +108,7 @@ import org.telegram.ui.Stories.recorder.HintView2;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
@@ -1835,6 +1840,65 @@ public class CallLogActivity extends BaseFragment implements NotificationCenter.
 		}
 	}
 
+	public static void showUserCallLinkSheet(Context context, int currentAccount, String link, Theme.ResourcesProvider resourcesProvider, TLRPC.User user, boolean creator, Runnable done) {
+		final BottomSheet.Builder b = new BottomSheet.Builder(context, false, resourcesProvider, Theme.getColor(Theme.key_dialogBackground, resourcesProvider));
+
+		final LinearLayout linearLayout = new LinearLayout(context);
+		linearLayout.setOrientation(LinearLayout.VERTICAL);
+		linearLayout.setPadding(0, 0, 0, dp(8));
+
+		final FrameLayout topView = new FrameLayout(context);
+		topView.setClipChildren(false);
+		topView.setClipToPadding(false);
+		linearLayout.addView(topView, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 112, Gravity.CENTER, 0, 0, 0, 0));
+
+		final FrameLayout circle = new FrameLayout(context);
+		ImageView imageView = new ImageView(context);
+		imageView.setScaleType(ImageView.ScaleType.CENTER);
+		imageView.setImageResource(R.drawable.story_link);
+		imageView.setScaleX(2.3f);
+		imageView.setScaleY(2.3f);
+		circle.addView(imageView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT, Gravity.CENTER));
+		circle.setBackground(Theme.createCircleDrawable(dp(96), Theme.getColor(Theme.key_featuredStickers_addButton, resourcesProvider)));
+		topView.addView(circle, LayoutHelper.createFrame(96, 96, Gravity.CENTER_HORIZONTAL, 0, 16, 0, 0));
+
+		final ImageView closeView = new ImageView(context);
+		closeView.setScaleType(ImageView.ScaleType.CENTER);
+		closeView.setImageResource(R.drawable.msg_close);
+		closeView.setColorFilter(new PorterDuffColorFilter(Theme.getColor(Theme.key_windowBackgroundWhiteGrayText, resourcesProvider), PorterDuff.Mode.SRC_IN));
+		closeView.setBackground(Theme.createSelectorDrawable(Theme.getColor(Theme.key_listSelector, resourcesProvider)));
+		if (creator) {
+			topView.addView(closeView, LayoutHelper.createFrame(56, 56, Gravity.RIGHT | Gravity.TOP, 0, 0, 0, 0));
+		}
+
+		LinkSpanDrawable.LinksTextView textView = TextHelper.makeLinkTextView(context, 20, Theme.key_windowBackgroundWhiteBlackText, true, resourcesProvider);
+		textView.setText(getString(R.string.CallInviteViaLinkTitle));
+		textView.setGravity(Gravity.CENTER);
+		linearLayout.addView(textView, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, Gravity.CENTER, 32, 16, 32, 8));
+
+		textView = TextHelper.makeLinkTextView(context, 14, Theme.key_windowBackgroundWhiteBlackText, false, resourcesProvider);
+		textView.setText(AndroidUtilities.replaceTags(LocaleController.formatString(R.string.InviteCallRestrictedUsersOne, ContactsController.formatName(user.first_name, user.last_name))));
+		textView.setGravity(Gravity.CENTER);
+		textView.setMaxWidth(HintView2.cutInFancyHalf(textView.getText(), textView.getPaint()));
+		linearLayout.addView(textView, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, Gravity.CENTER, 32, 0, 32, 18));
+
+		ButtonWithCounterView sendButton = new ButtonWithCounterView(context, resourcesProvider);
+		sendButton.setText(getString(R.string.SendInviteLink), false);
+		linearLayout.addView(sendButton, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 48, Gravity.CENTER_HORIZONTAL, 16, 16, 16, 0));
+
+		b.setCustomView(linearLayout);
+		b.show();
+		closeView.setOnClickListener(v -> {
+			b.getDismissRunnable().run();
+		});
+		sendButton.setOnClickListener( v -> {
+			SendMessagesHelper.SendMessageParams params = SendMessagesHelper.SendMessageParams.of(link, user.id, null, null, null, true, null, null, null, true, 0, null, false);
+			SendMessagesHelper.getInstance(currentAccount).sendMessage(params);
+			b.getDismissRunnable().run();
+			done.run();
+		});
+	}
+
 	private void openCreateCall() {
 		Bundle args = new Bundle();
 		args.putBoolean("isCall", true);
@@ -1955,6 +2019,35 @@ public class CallLogActivity extends BaseFragment implements NotificationCenter.
 			} else {
 				progressDialog.dismiss();
 				AndroidUtilities.runOnUIThread(done);
+			}
+		}));
+	}
+
+	public static void createUserCallLink(Context context, int currentAccount, TLRPC.User user, Theme.ResourcesProvider resourceProvider, Runnable done) {
+		final AlertDialog progressDialog = new AlertDialog(context, AlertDialog.ALERT_TYPE_SPINNER);
+		progressDialog.showDelayed(500);
+
+		final TL_phone.createConferenceCall req = new TL_phone.createConferenceCall();
+		req.random_id = Utilities.random.nextInt();
+		ConnectionsManager.getInstance(currentAccount).sendRequest(req, (res, err) -> AndroidUtilities.runOnUIThread(() -> {
+			if (res instanceof TLRPC.Updates) {
+				TLRPC.Updates updates = (TLRPC.Updates) res;
+				MessagesController.getInstance(currentAccount).putUsers(updates.users, false);
+				MessagesController.getInstance(currentAccount).putChats(updates.chats, false);
+
+				TLRPC.GroupCall groupCall = null;
+				for (TLRPC.TL_updateGroupCall u : findUpdatesAndRemove(updates, TLRPC.TL_updateGroupCall.class)) {
+					groupCall = u.call;
+				}
+				progressDialog.dismiss();
+				if (groupCall != null) {
+					final TLRPC.TL_inputGroupCall inputGroupCall = new TLRPC.TL_inputGroupCall();
+					inputGroupCall.id = groupCall.id;
+					inputGroupCall.access_hash = groupCall.access_hash;
+					showUserCallLinkSheet(context, currentAccount, groupCall.invite_link, resourceProvider, user, true, done);
+				}
+			} else {
+				progressDialog.dismiss();
 			}
 		}));
 	}

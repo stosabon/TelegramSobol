@@ -252,6 +252,13 @@ public class ForumUtilities {
         }
     }
 
+    public static void openTopic(BaseFragment baseFragment, long chatId, TLRPC.TL_forumTopic topic, int fromMessageId, boolean removeLast) {
+        ChatActivity chatActivity = getChatActivityForTopic(baseFragment, chatId, topic, fromMessageId, new Bundle());
+        if (chatActivity != null) {
+            baseFragment.presentFragment(chatActivity, removeLast);
+        }
+    }
+
     public static ChatActivity getChatActivityForTopic(BaseFragment baseFragment, long chatId, TLRPC.TL_forumTopic topic, int fromMessageId, Bundle args) {
         if (baseFragment == null || topic == null) {
             return null;

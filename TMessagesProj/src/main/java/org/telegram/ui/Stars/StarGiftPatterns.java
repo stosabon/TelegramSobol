@@ -2,12 +2,13 @@ package org.telegram.ui.Stars;
 
 import static org.telegram.messenger.AndroidUtilities.dp;
 import static org.telegram.messenger.AndroidUtilities.dpf2;
+import static org.telegram.messenger.AndroidUtilities.lerp;
 
 import android.graphics.Canvas;
 import android.graphics.drawable.Drawable;
+import android.view.View;
 
 import org.telegram.messenger.AndroidUtilities;
-import org.telegram.ui.ActionBar.Theme;
 
 public class StarGiftPatterns {
 
@@ -146,7 +147,7 @@ public class StarGiftPatterns {
         43.33f, 1, 18.66f, .3186f
     };
 
-    public static void drawProfilePattern(Canvas canvas, Drawable pattern, float w, float h, float alpha, float full) {
+    public static void drawOldProfilePattern(Canvas canvas, Drawable pattern, float w, float h, float alpha, float full) {
         if (alpha <= 0.0f) return;
 
         final float b = h;
@@ -209,4 +210,254 @@ public class StarGiftPatterns {
         }
     }
 
+    private static final float[] profileV3Right = new float[] {
+            26f, .24f, // top center
+            26f, .32f, // top left middle
+            26f, .32f, // top right middle
+            22f, .20f, // top left
+            22f, .20f, // top right
+            26f, .32f, // center left middle
+            22f, .20f, // center left
+            26f, .32f, // bottom left center
+            24f, .20f, // bottom left
+            24f, .20f, // bottom center left
+            26f, .20f, // bottom center
+            24f, .20f, // bottom center right
+            24f, .20f, // bottom right,
+            26f, .32f, // bottom right center
+            22f, .20f, // center right
+            26f, .32f, // center right middle
+            24f, .20f, // top center right
+            24f, .20f, // top center left
+    };
+
+    public static void drawProfilePattern(Canvas canvas, Drawable pattern, View avatarContainer, float contentExpandProgress, float maxAvatarScale) {
+        if (contentExpandProgress <= 0.0f || avatarContainer == null) return;
+
+        final float avatarX = avatarContainer.getX();
+        final float avatarY = avatarContainer.getY();
+        final float avatarWidth = avatarContainer.getWidth() * avatarContainer.getScaleX();
+        final float avatarHeight = avatarContainer.getHeight() * avatarContainer.getScaleY();
+        final float avatarCenterX = avatarX + avatarWidth / 2.0f;
+        final float avatarCenterY = avatarY + avatarHeight / 2.0f;
+        final float avatarMaxWidth = avatarContainer.getWidth() * maxAvatarScale;
+        final float avatarMaxHeight = avatarContainer.getHeight() * maxAvatarScale;
+
+        float contentCollapseProgress = 1f - contentExpandProgress;
+        float alpha;
+        for (int i = 0; i < profileV3Right.length; i+=2) {
+            float size = dpf2(profileV3Right[i]);
+            float thisAlpha = profileV3Right[i + 1];
+            if (i == 0) {
+                // top center
+                pattern.setBounds(
+                        (int) (avatarCenterX - size / 2f),
+                        (int) normalisedLerp(avatarCenterY - avatarMaxHeight * 0.8f, avatarCenterY - size / 2f, contentCollapseProgress, 0.1f, 0.45f),
+                        (int) (avatarCenterX + size / 2f),
+                        (int) normalisedLerp(avatarCenterY - avatarMaxHeight * 0.8f + size, avatarCenterY + size / 2f, contentCollapseProgress, 0.1f, 0.45f)
+                );
+                alpha = normalisedLerp(1f, 0f, contentCollapseProgress, 0.1f, 0.25f);
+                pattern.setAlpha((int) (0xFF * alpha * thisAlpha));
+                pattern.draw(canvas);
+            } else if (i == 2) {
+                // top left middle
+                pattern.setBounds(
+                        (int) normalisedLerp(avatarCenterX - avatarMaxWidth * 0.7f, avatarCenterX - size / 2f, contentCollapseProgress, 0.1f, 0.38f),
+                        (int) normalisedLerp(avatarCenterY - avatarMaxHeight * 0.5f, avatarCenterY - size / 2f, contentCollapseProgress, 0.1f, 0.38f),
+                        (int) normalisedLerp(avatarCenterX - avatarMaxWidth * 0.7f + size, avatarCenterX + size / 2f, contentCollapseProgress, 0.1f, 0.38f),
+                        (int) normalisedLerp(avatarCenterY - avatarMaxHeight * 0.5f + size, avatarCenterY + size / 2f, contentCollapseProgress, 0.1f, 0.38f)
+                );
+                alpha = normalisedLerp(1f, 0f, contentCollapseProgress, 0.1f, 0.23f);
+                pattern.setAlpha((int) (0xFF * alpha * thisAlpha));
+                pattern.draw(canvas);
+            } else if (i == 4) {
+                // top right middle
+                pattern.setBounds(
+                        (int) normalisedLerp(avatarCenterX + avatarMaxWidth * 0.7f - size, avatarCenterX - size / 2f, contentCollapseProgress, 0.1f, 0.38f),
+                        (int) normalisedLerp(avatarCenterY - avatarMaxHeight * 0.5f, avatarCenterY - size / 2f, contentCollapseProgress, 0.1f, 0.38f),
+                        (int) normalisedLerp(avatarCenterX + avatarMaxWidth * 0.7f, avatarCenterX + size / 2f, contentCollapseProgress, 0.1f, 0.38f),
+                        (int) normalisedLerp(avatarCenterY - avatarMaxHeight * 0.5f + size, avatarCenterY + size / 2f, contentCollapseProgress, 0.1f, 0.38f)
+                );
+                alpha = normalisedLerp(1f, 0f, contentCollapseProgress, 0.1f, 0.23f);
+                pattern.setAlpha((int) (0xFF * alpha * thisAlpha));
+                pattern.draw(canvas);
+            } else if (i == 6) {
+                // top left
+                pattern.setBounds(
+                        (int) normalisedLerp(avatarCenterX - avatarMaxWidth * 1.1f, avatarCenterX - size / 2f, contentCollapseProgress, 0.1f, 0.6f),
+                        (int) normalisedLerp(avatarCenterY - avatarMaxHeight * 0.65f, avatarCenterY - size / 2f, contentCollapseProgress, 0.1f, 0.6f),
+                        (int) normalisedLerp(avatarCenterX - avatarMaxWidth * 1.1f + size, avatarCenterX + size / 2f, contentCollapseProgress, 0.1f, 0.6f),
+                        (int) normalisedLerp(avatarCenterY - avatarMaxHeight * 0.65f + size, avatarCenterY + size / 2f, contentCollapseProgress, 0.1f, 0.6f)
+                );
+                alpha = normalisedLerp(1f, 0f, contentCollapseProgress, 0.1f, 1f);
+                pattern.setAlpha((int) (0xFF * alpha * thisAlpha));
+                pattern.draw(canvas);
+            } else if (i == 8) {
+                // top right
+                pattern.setBounds(
+                        (int) normalisedLerp(avatarCenterX + avatarMaxWidth * 1.1f - size, avatarCenterX - size / 2f, contentCollapseProgress, 0.1f, 0.6f),
+                        (int) normalisedLerp(avatarCenterY - avatarMaxHeight * 0.65f, avatarCenterY - size / 2f, contentCollapseProgress, 0.1f, 0.6f),
+                        (int) normalisedLerp(avatarCenterX + avatarMaxWidth * 1.1f, avatarCenterX + size / 2f, contentCollapseProgress, 0.1f, 0.6f),
+                        (int) normalisedLerp(avatarCenterY - avatarMaxHeight * 0.65f + size, avatarCenterY + size / 2f, contentCollapseProgress, 0.1f, 0.6f)
+                );
+                alpha = normalisedLerp(1f, 0f, contentCollapseProgress, 0.1f, 1f);
+                pattern.setAlpha((int) (0xFF * alpha * thisAlpha));
+                pattern.draw(canvas);
+            } else if (i == 10) {
+                // center left middle
+                pattern.setBounds(
+                        (int) normalisedLerp(avatarCenterX - avatarMaxWidth, avatarCenterX - size / 2f, contentCollapseProgress, 0.2f, 0.7f),
+                        (int) normalisedLerp(avatarCenterY - avatarMaxHeight * 0.05f, avatarCenterY - size / 2f, contentCollapseProgress, 0.2f, 0.7f),
+                        (int) normalisedLerp(avatarCenterX - avatarMaxWidth + size, avatarCenterX + size / 2f, contentCollapseProgress, 0.2f, 0.7f),
+                        (int) normalisedLerp(avatarCenterY - avatarMaxHeight * 0.05f + size, avatarCenterY + size / 2f, contentCollapseProgress, 0.2f, 0.7f)
+                );
+                alpha = normalisedLerp(1f, 0.2f, contentCollapseProgress, 0.2f, 0.6f);
+                pattern.setAlpha((int) (0xFF * alpha * thisAlpha));
+                pattern.draw(canvas);
+            } else if (i == 12) {
+                // center left
+                pattern.setBounds(
+                        (int) normalisedLerp(avatarCenterX - avatarMaxWidth * 1.5f, avatarCenterX - size / 2f, contentCollapseProgress, 0.2f, 0.8f),
+                        (int) normalisedLerp(avatarCenterY - avatarMaxHeight * 0.05f, avatarCenterY - size / 2f, contentCollapseProgress, 0.2f, 0.8f),
+                        (int) normalisedLerp(avatarCenterX - avatarMaxWidth * 1.5f + size, avatarCenterX + size / 2f, contentCollapseProgress, 0.2f, 0.8f),
+                        (int) normalisedLerp(avatarCenterY - avatarMaxHeight * 0.05f + size, avatarCenterY + size / 2f, contentCollapseProgress, 0.2f, 0.8f)
+                );
+                alpha = normalisedLerp(1f, 0.2f, contentCollapseProgress, 0.2f, 1f);
+                pattern.setAlpha((int) (0xFF * alpha * thisAlpha));
+                pattern.draw(canvas);
+            } else if (i == 14) {
+                // bottom left
+                pattern.setBounds(
+                        (int) normalisedLerp(avatarCenterX - avatarMaxWidth * 0.7f, avatarCenterX - size / 2f, contentCollapseProgress, 0.1f, 0.6f),
+                        (int) normalisedLerp(avatarCenterY + avatarMaxHeight * 0.3f, avatarCenterY - size / 2f, contentCollapseProgress, 0.1f, 0.6f),
+                        (int) normalisedLerp(avatarCenterX - avatarMaxWidth * 0.7f + size, avatarCenterX + size / 2f, contentCollapseProgress, 0.1f, 0.6f),
+                        (int) normalisedLerp(avatarCenterY + avatarMaxHeight * 0.3f + size, avatarCenterY + size / 2f, contentCollapseProgress, 0.1f, 0.6f)
+                );
+                alpha = normalisedLerp(1f, 0f, contentCollapseProgress, 0.1f, 0.4f);
+                pattern.setAlpha((int) (0xFF * alpha * thisAlpha));
+                pattern.draw(canvas);
+            } else if (i == 16) {
+                // bottom left
+               pattern.setBounds(
+                       (int) normalisedLerp(avatarCenterX - avatarMaxWidth * 1.2f, avatarCenterX - size / 2f, contentCollapseProgress, 0.1f, 0.7f),
+                       (int) normalisedLerp(avatarCenterY + avatarMaxHeight * 0.56f, avatarCenterY - size / 2f, contentCollapseProgress, 0.1f, 0.7f),
+                       (int) normalisedLerp(avatarCenterX - avatarMaxWidth * 1.2f + size, avatarCenterX + size / 2f, contentCollapseProgress, 0.1f, 0.7f),
+                       (int) normalisedLerp(avatarCenterY + avatarMaxHeight * 0.56f + size, avatarCenterY + size / 2f, contentCollapseProgress, 0.1f, 0.7f)
+               );
+                alpha = normalisedLerp(1f, 0f, contentCollapseProgress, 0.1f, 1f);
+                pattern.setAlpha((int) (0xFF * alpha * thisAlpha));
+               pattern.draw(canvas);
+            } else if (i == 18) {
+                // bottom center left
+                pattern.setBounds(
+                        (int) normalisedLerp(avatarCenterX - avatarMaxWidth * 0.6f, avatarCenterX - size / 2f, contentCollapseProgress, 0.2f, 0.9f),
+                        (int) normalisedLerp(avatarCenterY + avatarMaxHeight * 0.8f, avatarCenterY - size / 2f, contentCollapseProgress, 0.2f, 0.9f),
+                        (int) normalisedLerp(avatarCenterX - avatarMaxWidth * 0.6f + size, avatarCenterX + size / 2f, contentCollapseProgress, 0.2f, 0.9f),
+                        (int) normalisedLerp(avatarCenterY + avatarMaxHeight * 0.8f + size, avatarCenterY + size / 2f, contentCollapseProgress, 0.2f, 0.9f)
+                );
+                alpha = normalisedLerp(1f, 0.3f, contentCollapseProgress, 0.2f, 1f);
+                pattern.setAlpha((int) (0xFF * alpha * thisAlpha));
+                pattern.draw(canvas);
+            } else if (i == 20) {
+                 // bottom center
+                pattern.setBounds(
+                        (int) (avatarCenterX - size / 2f),
+                        (int) normalisedLerp(avatarCenterY + avatarMaxHeight * 0.8f - size, avatarCenterY - size / 2f, contentCollapseProgress, 0.1f, 0.45f),
+                        (int) (avatarCenterX + size / 2f),
+                        (int) normalisedLerp(avatarCenterY + avatarMaxHeight * 0.8f, avatarCenterY + size / 2f, contentCollapseProgress, 0.1f, 0.45f)
+                );
+                alpha = normalisedLerp(1f, 0f, contentCollapseProgress, 0.1f, 0.25f);
+                pattern.setAlpha((int) (0xFF * alpha * thisAlpha));
+                pattern.draw(canvas);
+            } else if (i == 22) {
+                // bottom center right
+                pattern.setBounds(
+                        (int) normalisedLerp(avatarCenterX + avatarMaxWidth * 0.6f - size, avatarCenterX - size / 2f, contentCollapseProgress, 0.2f, 0.9f),
+                        (int) normalisedLerp(avatarCenterY + avatarMaxHeight * 0.8f, avatarCenterY - size / 2f, contentCollapseProgress, 0.2f, 0.9f),
+                        (int) normalisedLerp(avatarCenterX + avatarMaxWidth * 0.6f, avatarCenterX + size / 2f, contentCollapseProgress, 0.2f, 0.9f),
+                        (int) normalisedLerp(avatarCenterY + avatarMaxHeight * 0.8f + size, avatarCenterY + size / 2f, contentCollapseProgress, 0.2f, 0.9f)
+                );
+                alpha = normalisedLerp(1f, 0.3f, contentCollapseProgress, 0.2f, 1f);
+                pattern.setAlpha((int) (0xFF * alpha * thisAlpha));
+                pattern.draw(canvas);
+            } else if (i == 24) {
+                // bottom right
+                pattern.setBounds(
+                        (int) normalisedLerp(avatarCenterX + avatarMaxWidth * 1.2f - size, avatarCenterX - size / 2f, contentCollapseProgress, 0.1f, 0.7f),
+                        (int) normalisedLerp(avatarCenterY + avatarMaxHeight * 0.56f, avatarCenterY - size / 2f, contentCollapseProgress, 0.1f, 0.7f),
+                        (int) normalisedLerp(avatarCenterX + avatarMaxWidth * 1.2f, avatarCenterX + size / 2f, contentCollapseProgress, 0.1f, 0.7f),
+                        (int) normalisedLerp(avatarCenterY + avatarMaxHeight * 0.56f + size, avatarCenterY + size / 2f, contentCollapseProgress, 0.1f, 0.7f)
+                );
+                alpha = normalisedLerp(1f, 0f, contentCollapseProgress, 0.1f, 1f);
+                pattern.setAlpha((int) (0xFF * alpha * thisAlpha));
+                pattern.draw(canvas);
+            } else if (i == 26) {
+                // bottom right center
+                pattern.setBounds(
+                        (int) normalisedLerp(avatarCenterX + avatarMaxWidth * 0.7f - size, avatarCenterX - size / 2f, contentCollapseProgress, 0.1f, 0.6f),
+                        (int) normalisedLerp(avatarCenterY + avatarMaxHeight * 0.3f, avatarCenterY - size / 2f, contentCollapseProgress, 0.1f, 0.6f),
+                        (int) normalisedLerp(avatarCenterX + avatarMaxWidth * 0.7f, avatarCenterX + size / 2f, contentCollapseProgress, 0.1f, 0.6f),
+                        (int) normalisedLerp(avatarCenterY + avatarMaxHeight * 0.3f + size, avatarCenterY + size / 2f, contentCollapseProgress, 0.1f, 0.6f)
+                );
+                alpha = normalisedLerp(1f, 0f, contentCollapseProgress, 0.1f, 0.4f);
+                pattern.setAlpha((int) (0xFF * alpha * thisAlpha));
+                pattern.draw(canvas);
+            } else if (i == 28) {
+                // center right
+                pattern.setBounds(
+                        (int) normalisedLerp(avatarCenterX + avatarMaxWidth * 1.5f - size, avatarCenterX - size / 2f, contentCollapseProgress, 0.2f, 0.8f),
+                        (int) normalisedLerp(avatarCenterY - avatarMaxHeight * 0.05f, avatarCenterY - size / 2f, contentCollapseProgress, 0.2f, 0.8f),
+                        (int) normalisedLerp(avatarCenterX + avatarMaxWidth * 1.5f, avatarCenterX + size / 2f, contentCollapseProgress, 0.2f, 0.8f),
+                        (int) normalisedLerp(avatarCenterY - avatarMaxHeight * 0.05f + size, avatarCenterY + size / 2f, contentCollapseProgress, 0.2f, 0.8f)
+                );
+                alpha = normalisedLerp(1f, 0.2f, contentCollapseProgress, 0.2f, 1f);
+                pattern.setAlpha((int) (0xFF * alpha * thisAlpha));
+                pattern.draw(canvas);
+            } else if (i == 30) {
+                // center right middle
+                pattern.setBounds(
+                        (int) normalisedLerp(avatarCenterX + avatarMaxWidth - size, avatarCenterX - size / 2f, contentCollapseProgress, 0.2f, 0.7f),
+                        (int) normalisedLerp(avatarCenterY - avatarMaxHeight * 0.05f, avatarCenterY - size / 2f, contentCollapseProgress, 0.2f, 0.7f),
+                        (int) normalisedLerp(avatarCenterX + avatarMaxWidth, avatarCenterX + size / 2f, contentCollapseProgress, 0.2f, 0.7f),
+                        (int) normalisedLerp(avatarCenterY - avatarMaxHeight * 0.05f + size, avatarCenterY + size / 2f, contentCollapseProgress, 0.2f, 0.7f)
+                );
+                alpha = normalisedLerp(1f, 0.2f, contentCollapseProgress, 0.2f, 0.6f);
+                pattern.setAlpha((int) (0xFF * alpha * thisAlpha));
+                pattern.draw(canvas);
+            } if (i == 32) {
+                // top center right
+                pattern.setBounds(
+                        (int) normalisedLerp(avatarCenterX + avatarMaxWidth * 0.6f - size, avatarCenterX - size / 2f, contentCollapseProgress, 0.2f, 0.6f),
+                        (int) normalisedLerp(avatarCenterY - avatarMaxHeight * 0.8f - size, avatarCenterY - size / 2f, contentCollapseProgress, 0.2f, 0.6f),
+                        (int) normalisedLerp(avatarCenterX + avatarMaxWidth * 0.6f, avatarCenterX + size / 2f, contentCollapseProgress, 0.2f, 0.6f),
+                        (int) normalisedLerp(avatarCenterY - avatarMaxHeight * 0.8f, avatarCenterY + size / 2f, contentCollapseProgress, 0.2f, 0.6f)
+                );
+                alpha = normalisedLerp(1f, 0.3f, contentCollapseProgress, 0.2f, 0.6f);
+                pattern.setAlpha((int) (0xFF * alpha * thisAlpha));
+                pattern.draw(canvas);
+            } else if (i == 34) {
+                // top center left
+                pattern.setBounds(
+                        (int) normalisedLerp(avatarCenterX - avatarMaxWidth * 0.6f, avatarCenterX - size / 2f, contentCollapseProgress, 0.2f, 0.6f),
+                        (int) normalisedLerp(avatarCenterY - avatarMaxHeight * 0.8f - size, avatarCenterY - size / 2f, contentCollapseProgress, 0.2f, 0.6f),
+                        (int) normalisedLerp(avatarCenterX - avatarMaxWidth * 0.6f + size, avatarCenterX + size / 2f, contentCollapseProgress, 0.2f, 0.6f),
+                        (int) normalisedLerp(avatarCenterY - avatarMaxHeight * 0.8f, avatarCenterY + size / 2f, contentCollapseProgress, 0.2f, 0.6f)
+                );
+                alpha = normalisedLerp(1f, 0.3f, contentCollapseProgress, 0.2f, 0.6f);
+                pattern.setAlpha((int) (0xFF * alpha * thisAlpha));
+                pattern.draw(canvas);
+            }
+        }
+    }
+
+    private static float normalisedLerp(float start, float end, float progress, float from, float to) {
+        if (progress < from) {
+            return start;
+        } else if (progress > to) {
+            return end;
+        } else {
+            float normalized = (progress - from) / (to - from);
+            return lerp(start, end, normalized);
+        }
+    }
 }

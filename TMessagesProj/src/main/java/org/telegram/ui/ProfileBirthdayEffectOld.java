@@ -28,24 +28,24 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 
-public class ProfileBirthdayEffect extends View {
+public class ProfileBirthdayEffectOld extends View {
 
     private final int currentAccount;
     private final long dialogId;
-    private final ProfileActivity profileActivity;
+    private final ProfileActivityOld profileActivity;
     private BirthdayEffectFetcher fetcher;
     private BirthdayEffectFetcher fetcherToSet;
 
     public static String numbersEmojipack = "FestiveFontEmoji";
     public static String interactionsPack = "EmojiAnimations";
     public static String[] interactions = new String[] {
-            "🎉", "🎆", "🎈"
+        "🎉", "🎆", "🎈"
     };
 
 
     public PointF sourcePoint = new PointF();
 
-    public ProfileBirthdayEffect(ProfileActivity profileActivity, BirthdayEffectFetcher fetcher) {
+    public ProfileBirthdayEffectOld(ProfileActivityOld profileActivity, BirthdayEffectFetcher fetcher) {
         super(profileActivity.getContext());
 
         this.currentAccount = profileActivity.getCurrentAccount();
@@ -78,7 +78,7 @@ public class ProfileBirthdayEffect extends View {
                 post(() -> {
 //                    final String key = "bdayanim_" + LocalDate.now().getYear() + "_" + dialogId;
 //                    if (MessagesController.getInstance(currentAccount).getMainSettings().getBoolean(key, true)) {
-                    start();
+                        start();
 //                        MessagesController.getInstance(currentAccount).getMainSettings().edit().putBoolean(key, false).apply();
 //                    }
                 });
@@ -118,10 +118,10 @@ public class ProfileBirthdayEffect extends View {
             final float scale = CubicBezierInterpolator.EASE_OUT_QUINT.getInterpolation(Utilities.clamp(t / .4f, 1, 0));
 
             asset.setImageCoords(
-                    centerX - sz / 2f * scale,
-                    centerY - sz / 2f * scale,
-                    sz * scale,
-                    sz * scale
+                centerX - sz / 2f * scale,
+                centerY - sz / 2f * scale,
+                sz * scale,
+                sz * scale
             );
             asset.draw(canvas);
         }
@@ -376,13 +376,13 @@ public class ProfileBirthdayEffect extends View {
             allAssets.clear();
         }
 
-        public ArrayList<ProfileBirthdayEffect> views = new ArrayList<>();
+        public ArrayList<ProfileBirthdayEffectOld> views = new ArrayList<>();
 
-        public void addView(ProfileBirthdayEffect effect) {
+        public void addView(ProfileBirthdayEffectOld effect) {
             views.add(effect);
         }
 
-        public void removeView(ProfileBirthdayEffect effect) {
+        public void removeView(ProfileBirthdayEffectOld effect) {
             views.remove(effect);
             if (views.isEmpty() && detachLater) {
                 detach(true);

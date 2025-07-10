@@ -47,6 +47,9 @@ public class BackupImageView extends View {
 
     protected boolean hasBlur;
     protected boolean blurAllowed;
+
+    private boolean drawBlurredImageIfAllowed = true;
+
     public boolean drawFromStart;
 
     public BackupImageView(Context context) {
@@ -87,6 +90,10 @@ public class BackupImageView extends View {
             blurImageReceiver.setImageBitmap((Bitmap) null);
         }
         checkCreateBlurredImage();
+    }
+
+    public void setDrawBlurredImageIfAllowed(boolean draw) {
+        drawBlurredImageIfAllowed = draw;
     }
 
     public void onNewImageSet() {
@@ -325,23 +332,23 @@ public class BackupImageView extends View {
         if (width != -1 && height != -1) {
             if (drawFromStart) {
                 imageReceiver.setImageCoords(0, 0, width, height);
-                if (blurAllowed) {
+                if (blurAllowed && drawBlurredImageIfAllowed) {
                     blurImageReceiver.setImageCoords(0, 0, width, height);
                 }
             } else {
                 imageReceiver.setImageCoords((getWidth() - width) / 2, (getHeight() - height) / 2, width, height);
-                if (blurAllowed) {
+                if (blurAllowed && drawBlurredImageIfAllowed) {
                     blurImageReceiver.setImageCoords((getWidth() - width) / 2, (getHeight() - height) / 2, width, height);
                 }
             }
         } else {
             imageReceiver.setImageCoords(0, 0, getWidth(), getHeight());
-            if (blurAllowed) {
+            if (blurAllowed && drawBlurredImageIfAllowed) {
                 blurImageReceiver.setImageCoords(0, 0, getWidth(), getHeight());
             }
         }
         imageReceiver.draw(canvas);
-        if (blurAllowed) {
+        if (blurAllowed && drawBlurredImageIfAllowed) {
             blurImageReceiver.draw(canvas);
         }
     }

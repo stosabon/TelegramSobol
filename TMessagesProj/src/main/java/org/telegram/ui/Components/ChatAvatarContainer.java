@@ -46,7 +46,6 @@ import org.telegram.messenger.LocaleController;
 import org.telegram.messenger.MessagesController;
 import org.telegram.messenger.NotificationCenter;
 import org.telegram.messenger.R;
-import org.telegram.messenger.SavedMessagesController;
 import org.telegram.messenger.UserConfig;
 import org.telegram.messenger.UserObject;
 import org.telegram.tgnet.ConnectionsManager;
@@ -590,6 +589,7 @@ public class ChatAvatarContainer extends FrameLayout implements NotificationCent
             } else if (parentFragment.isTopic) {
                 args.putLong("topic_id", parentFragment.getThreadMessage().getId());
             }
+            args.putLong("report_dialog_id", parentFragment.getDialogId());
             ProfileActivity fragment = new ProfileActivity(args, sharedMediaPreloader);
             if (!monoforum) {
                 fragment.setChatInfo(parentFragment.getCurrentChatInfo());

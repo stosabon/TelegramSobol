@@ -768,6 +768,16 @@ public class ReportBottomSheet extends BottomSheet {
     }
 
     public static void openChat(
+            Context context,
+            int currentAccount,
+            long dialogId
+    ) {
+        if (context == null) return;
+
+        open(currentAccount, context, dialogId, false, new ArrayList<>(), null, null, new byte[]{}, null, null);
+    }
+
+    public static void openChat(
         BaseFragment fragment,
         long dialogId
     ) {

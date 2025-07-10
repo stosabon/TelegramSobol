@@ -2763,6 +2763,7 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
             getNotificationCenter().addObserver(this, NotificationCenter.didUpdateConnectionState);
             getNotificationCenter().addObserver(this, NotificationCenter.onDownloadingFilesChanged);
             getNotificationCenter().addObserver(this, NotificationCenter.needDeleteDialog);
+            getNotificationCenter().addObserver(this, NotificationCenter.needBlockBot);
             getNotificationCenter().addObserver(this, NotificationCenter.folderBecomeEmpty);
             getNotificationCenter().addObserver(this, NotificationCenter.newSuggestionsAvailable);
             getNotificationCenter().addObserver(this, NotificationCenter.fileLoaded);
@@ -2932,6 +2933,7 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
             getNotificationCenter().removeObserver(this, NotificationCenter.didUpdateConnectionState);
             getNotificationCenter().removeObserver(this, NotificationCenter.onDownloadingFilesChanged);
             getNotificationCenter().removeObserver(this, NotificationCenter.needDeleteDialog);
+            getNotificationCenter().removeObserver(this, NotificationCenter.needBlockBot);
             getNotificationCenter().removeObserver(this, NotificationCenter.folderBecomeEmpty);
             getNotificationCenter().removeObserver(this, NotificationCenter.newSuggestionsAvailable);
             getNotificationCenter().removeObserver(this, NotificationCenter.fileLoaded);
@@ -10716,7 +10718,12 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
             } else {
                 deleteRunnable.run();
             }
-        } else if (id == NotificationCenter.folderBecomeEmpty) {
+        } else if (id == NotificationCenter.needBlockBot) {
+            TLRPC.User user = (TLRPC.User) args[0];
+            if (user != null && user.bot) {
+                getMessagesController().blockPeer(user.id);
+            }
+        }else if (id == NotificationCenter.folderBecomeEmpty) {
             int fid = (Integer) args[0];
             if (folderId == fid && folderId != 0) {
                 finishFragment();

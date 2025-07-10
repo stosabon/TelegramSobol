@@ -2757,7 +2757,7 @@ public class PeerColorActivity extends BaseFragment implements NotificationCente
             );
 
             final float patternFull = emojiCollectible.set(isEmojiCollectible);
-            StarGiftPatterns.drawProfilePattern(canvas, emoji, getWidth(), getHeight(), 1.0f, patternFull);
+            StarGiftPatterns.drawOldProfilePattern(canvas, emoji, getWidth(), getHeight(), 1.0f, patternFull);
 
             super.dispatchDraw(canvas);
         }
