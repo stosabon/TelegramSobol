@@ -4647,6 +4647,8 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
 
         searchTabsView = null;
 
+        contentView.setClipChildren(false);
+        contentView.setClipToPadding(false);
         if (!onlySelect && initialDialogsType == 0) {
             fragmentLocationContextView = new FragmentContextView(context, this, true);
             fragmentLocationContextView.setLayoutParams(LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, 38, Gravity.TOP | Gravity.LEFT, 0, -36, 0, 0));
@@ -4718,8 +4720,6 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
                     return Math.max(1, DialogsActivity.this.messagesCount + (TextUtils.isEmpty(commentView == null ? "" : commentView.getFieldText()) ? 0 : 1));
                 }
             };
-            contentView.setClipChildren(false);
-            contentView.setClipToPadding(false);
             commentView.allowBlur = false;
             commentView.forceSmoothKeyboard(true);
             commentView.setAllowStickersAndGifs(true, false, false);

@@ -581,9 +581,7 @@ public class DialogStoriesCell extends FrameLayout implements NotificationCenter
                 int itemIndex = listItemsCollapsedIndices.get(i);
                 if (itemIndex < recyclerListView.getChildCount()) {
                     StoryCell cell = (StoryCell) recyclerListView.getChildAt(itemIndex);
-                    if (i != 0) {
-                        cell.setTranslationY(maxY * (1f - collapsedProgress1) * (i / (listItemsCollapsedIndices.size() - 1f)));
-                    }
+                    cell.setTranslationY(minY - maxY);
                 }
             }
         }
