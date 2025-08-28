@@ -3,6 +3,7 @@ package org.telegram.ui.Stories;
 import android.animation.Animator;
 import android.animation.AnimatorListenerAdapter;
 import android.animation.AnimatorSet;
+import android.animation.ObjectAnimator;
 import android.animation.ValueAnimator;
 import android.content.Context;
 import android.content.res.Configuration;
@@ -543,14 +544,15 @@ public class DialogStoriesCell extends FrameLayout implements NotificationCenter
         recyclerListView.setTranslationY(minY);
         listViewMini.setTranslationY(minY);
         listViewMini.setTranslationX(AndroidUtilities.dp(68));
-        for (int i = 0; i < listItemsCollapsedIndices.size(); i++) {
-            int itemIndex = listItemsCollapsedIndices.get(i);
-            if (itemIndex < recyclerListView.getChildCount()) {
-                StoryCell cell = (StoryCell) recyclerListView.getChildAt(itemIndex);
-                if (i != 0) {
-                    cell.setTranslationY(maxY * (1f - collapsedProgress1) * (i / (listItemsCollapsedIndices.size() - 1f)));
+        if (storiesTranslationAnimator == null || !storiesTranslationAnimator.isRunning()) {
+            for (int i = 0; i < listItemsCollapsedIndices.size(); i++) {
+                int itemIndex = listItemsCollapsedIndices.get(i);
+                if (itemIndex < recyclerListView.getChildCount()) {
+                    StoryCell cell = (StoryCell) recyclerListView.getChildAt(itemIndex);
+                    if (i != 0) {
+                        cell.setTranslationY(maxY * (1f - collapsedProgress1) * (i / (listItemsCollapsedIndices.size() - 1f)));
+                    }
                 }
-                //Log.e("STAS", "idnex = " + i + "y " + (maxY * collapsedProgress1 * ((i + 1f) / minItems)));
             }
         }
 
@@ -763,6 +765,7 @@ public class DialogStoriesCell extends FrameLayout implements NotificationCenter
         setProgressToCollapse(progress, true);
     }
 
+    AnimatorSet storiesTranslationAnimator;
     public void setProgressToCollapse(float progress, boolean animated) {
         if (collapsedProgress1 == progress) {
             return;
@@ -800,6 +803,30 @@ public class DialogStoriesCell extends FrameLayout implements NotificationCenter
                 valueAnimator.setDuration(450);
                 valueAnimator.setInterpolator(CubicBezierInterpolator.EASE_OUT_QUINT);
                 valueAnimator.start();
+            }
+
+            if (storiesTranslationAnimator != null) {
+                storiesTranslationAnimator.removeAllListeners();
+                storiesTranslationAnimator.cancel();
+                storiesTranslationAnimator = null;
+            }
+            if (animated) {
+                storiesTranslationAnimator = new AnimatorSet();
+                ArrayList<Animator> animators = new ArrayList<>();
+                AndroidUtilities.forEachViews(recyclerListView, view -> {
+                    Log.e("STAS", "translationY = " + view.getTranslationY());
+                    animators.add(ObjectAnimator.ofFloat(view, View.TRANSLATION_Y, view.getTranslationY(), 0));
+                });
+                storiesTranslationAnimator.playTogether(animators);
+            } else {
+                AndroidUtilities.forEachViews(recyclerListView, view -> {
+                    view.setTranslationY(0);
+                });
+            }
+            if (storiesTranslationAnimator != null) {
+                storiesTranslationAnimator.setDuration(450);
+                storiesTranslationAnimator.setInterpolator(CubicBezierInterpolator.EASE_OUT_QUINT);
+                storiesTranslationAnimator.start();
             }
         }
     }
