@@ -26,6 +26,7 @@ import android.view.HapticFeedbackConstants;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.animation.Interpolator;
 import android.view.animation.OvershootInterpolator;
 import android.widget.FrameLayout;
 
@@ -49,7 +50,6 @@ import org.telegram.messenger.UserConfig;
 import org.telegram.messenger.Utilities;
 import org.telegram.tgnet.TLObject;
 import org.telegram.tgnet.TLRPC;
-import org.telegram.tgnet.Vector;
 import org.telegram.tgnet.tl.TL_stories;
 import org.telegram.ui.ActionBar.ActionBar;
 import org.telegram.ui.ActionBar.AlertDialog;
@@ -149,6 +149,38 @@ public class DialogStoriesCell extends FrameLayout implements NotificationCenter
     private StoryCell overscrollSelectedView;
     private ActionBar actionBar;
     private StoriesUtilities.EnsureStoryFileLoadedObject globalCancelable;
+
+    public static class BounceInterpolator implements Interpolator {
+        public float getInterpolation(float t) {
+            if (t < 0.33f) {
+                return 0.1f * (t / 0.33f);
+            } else {
+                t -= 0.33f;
+                if (t < 0.33f) {
+                    return 0.1f - 0.15f * (t / 0.34f);
+                } else {
+                    t -= 0.34f;
+                    return -0.05f + 0.05f * (t / 0.33f);
+                }
+            }
+        }
+    }
+
+    public void bounceScale(View view) {
+        view.animate()
+                .scaleX(1.2f)
+                .scaleY(1.2f)
+                .setDuration(150)
+                .withEndAction(() -> {
+                    view.animate()
+                            .scaleX(1f)
+                            .scaleY(1f)
+                            .setInterpolator(new BounceInterpolator())
+                            .setDuration(400)
+                            .start();
+                })
+                .start();
+    }
 
     public DialogStoriesCell(@NonNull Context context, BaseFragment fragment, int currentAccount, int type) {
         super(context);
@@ -544,7 +576,7 @@ public class DialogStoriesCell extends FrameLayout implements NotificationCenter
         recyclerListView.setTranslationY(minY);
         listViewMini.setTranslationY(minY);
         listViewMini.setTranslationX(AndroidUtilities.dp(68));
-        if (storiesTranslationAnimator == null || !storiesTranslationAnimator.isRunning()) {
+        if (storiesAnimatorSet == null || !storiesAnimatorSet.isRunning()) {
             for (int i = 0; i < listItemsCollapsedIndices.size(); i++) {
                 int itemIndex = listItemsCollapsedIndices.get(i);
                 if (itemIndex < recyclerListView.getChildCount()) {
@@ -765,7 +797,7 @@ public class DialogStoriesCell extends FrameLayout implements NotificationCenter
         setProgressToCollapse(progress, true);
     }
 
-    AnimatorSet storiesTranslationAnimator;
+    AnimatorSet storiesAnimatorSet;
     public void setProgressToCollapse(float progress, boolean animated) {
         if (collapsedProgress1 == progress) {
             return;
@@ -782,13 +814,14 @@ public class DialogStoriesCell extends FrameLayout implements NotificationCenter
                 valueAnimator.cancel();
                 valueAnimator = null;
             }
+
+            if (storiesAnimatorSet != null) {
+                storiesAnimatorSet.removeAllListeners();
+                storiesAnimatorSet.cancel();
+                storiesAnimatorSet = null;
+            }
             if (animated) {
                 valueAnimator = ValueAnimator.ofFloat(collapsedProgress2, newCollapsed ? 1f : 0);
-            } else {
-                collapsedProgress2 = newCollapsed ? 1f : 0;
-                checkCollapsedProgres();
-            }
-            if (valueAnimator != null) {
                 valueAnimator.addUpdateListener(animation -> {
                     collapsedProgress2 = (float) animation.getAnimatedValue();
                     checkCollapsedProgres();
@@ -800,34 +833,53 @@ public class DialogStoriesCell extends FrameLayout implements NotificationCenter
                         checkCollapsedProgres();
                     }
                 });
-                valueAnimator.setDuration(450);
-                valueAnimator.setInterpolator(CubicBezierInterpolator.EASE_OUT_QUINT);
-                valueAnimator.start();
-            }
-
-            if (storiesTranslationAnimator != null) {
-                storiesTranslationAnimator.removeAllListeners();
-                storiesTranslationAnimator.cancel();
-                storiesTranslationAnimator = null;
-            }
-            if (animated) {
-                storiesTranslationAnimator = new AnimatorSet();
+                storiesAnimatorSet = new AnimatorSet();
                 ArrayList<Animator> animators = new ArrayList<>();
                 AndroidUtilities.forEachViews(recyclerListView, view -> {
-                    Log.e("STAS", "translationY = " + view.getTranslationY());
                     animators.add(ObjectAnimator.ofFloat(view, View.TRANSLATION_Y, view.getTranslationY(), 0));
                 });
-                storiesTranslationAnimator.playTogether(animators);
+                animators.add(valueAnimator);
+                storiesAnimatorSet.playTogether(animators);
+                storiesAnimatorSet.setDuration(450);
+                storiesAnimatorSet.setInterpolator(CubicBezierInterpolator.EASE_OUT_QUINT);
+                storiesAnimatorSet.start();
             } else {
+                collapsedProgress2 = newCollapsed ? 1f : 0;
+                checkCollapsedProgres();
                 AndroidUtilities.forEachViews(recyclerListView, view -> {
                     view.setTranslationY(0);
                 });
             }
-            if (storiesTranslationAnimator != null) {
-                storiesTranslationAnimator.setDuration(450);
-                storiesTranslationAnimator.setInterpolator(CubicBezierInterpolator.EASE_OUT_QUINT);
-                storiesTranslationAnimator.start();
-            }
+
+            //if (storiesBounceAnimatorSet != null) {
+            //    storiesBounceAnimatorSet.removeAllListeners();
+            //    storiesBounceAnimatorSet.cancel();
+            //    storiesBounceAnimatorSet = null;
+            //}
+            //
+            //if (animated) {
+            //    storiesBounceAnimatorSet = new AnimatorSet();
+            //    ArrayList<Animator> scaleUpAnimators = new ArrayList<>();
+            //    ArrayList<Animator> scaleDownAnimators = new ArrayList<>();
+            //
+            //    AndroidUtilities.forEachViews(recyclerListView, view -> {
+            //        scaleUpAnimators.add(ObjectAnimator.ofFloat(view, View.TRANSLATION_X, 0,  1000));
+            //        scaleUpAnimators.add(ObjectAnimator.ofFloat(view, View.TRANSLATION_Y, 0, 1000));
+            //        scaleDownAnimators.add(ObjectAnimator.ofFloat(view, View.TRANSLATION_X, 1000, 0));
+            //        scaleDownAnimators.add(ObjectAnimator.ofFloat(view, View.TRANSLATION_Y, 1000, 0));
+            //    });
+            //
+            //    AnimatorSet scaleUpSet = new AnimatorSet();
+            //    scaleUpSet.playTogether(scaleUpAnimators);
+            //    scaleUpSet.setDuration(2500);
+            //
+            //    AnimatorSet scaleDownSet = new AnimatorSet();
+            //    scaleDownSet.playTogether(scaleDownAnimators);
+            //    scaleDownSet.setDuration(2500);
+            //
+            //    storiesBounceAnimatorSet.playSequentially(scaleUpSet, scaleDownSet);
+            //    storiesBounceAnimatorSet.start();
+            //}
         }
     }
 
