@@ -19,6 +19,7 @@ import android.text.SpannableStringBuilder;
 import android.text.Spanned;
 import android.text.TextUtils;
 import android.text.style.ClickableSpan;
+import android.util.Log;
 import android.view.Gravity;
 import android.view.HapticFeedbackConstants;
 import android.view.MotionEvent;
@@ -47,6 +48,7 @@ import org.telegram.messenger.UserConfig;
 import org.telegram.messenger.Utilities;
 import org.telegram.tgnet.TLObject;
 import org.telegram.tgnet.TLRPC;
+import org.telegram.tgnet.Vector;
 import org.telegram.tgnet.tl.TL_stories;
 import org.telegram.ui.ActionBar.ActionBar;
 import org.telegram.ui.ActionBar.AlertDialog;
@@ -99,6 +101,7 @@ public class DialogStoriesCell extends FrameLayout implements NotificationCenter
     ArrayList<Item> oldMiniItems = new ArrayList<>();
     ArrayList<Item> items = new ArrayList<>();
     ArrayList<Item> miniItems = new ArrayList<>();
+    ArrayList<Integer> listItemsCollapsedIndices = new ArrayList<>();
     Adapter adapter = new Adapter(false);
     Adapter miniAdapter = new Adapter(true);
     Paint grayPaint = new Paint();
@@ -487,10 +490,12 @@ public class DialogStoriesCell extends FrameLayout implements NotificationCenter
         }
 
         miniItems.clear();
+        listItemsCollapsedIndices.clear();
         for (int i = 0; i < items.size(); i++) {
             if (items.get(i).dialogId == UserConfig.getInstance(currentAccount).clientUserId && !shouldDrawSelfInMini()) {
                 continue;
             } else {
+                listItemsCollapsedIndices.add(i);
                 miniItems.add(items.get(i));
                 if (miniItems.size() >= 3) {
                     break;
@@ -533,10 +538,21 @@ public class DialogStoriesCell extends FrameLayout implements NotificationCenter
         if (clipTop > 0) {
             canvas.clipRect(0, clipTop, getMeasuredWidth(), getMeasuredHeight());
         }
-        float y = AndroidUtilities.lerp(0, getMeasuredHeight() - ActionBar.getCurrentActionBarHeight() - AndroidUtilities.dp(4), collapsedProgress1);
-        recyclerListView.setTranslationY(y);
-        listViewMini.setTranslationY(y);
+        float maxY = getMeasuredHeight() - ActionBar.getCurrentActionBarHeight() - AndroidUtilities.dp(4);
+        float minY = AndroidUtilities.lerp(0, maxY, collapsedProgress1);
+        recyclerListView.setTranslationY(minY);
+        listViewMini.setTranslationY(minY);
         listViewMini.setTranslationX(AndroidUtilities.dp(68));
+        for (int i = 0; i < listItemsCollapsedIndices.size(); i++) {
+            int itemIndex = listItemsCollapsedIndices.get(i);
+            if (itemIndex < recyclerListView.getChildCount()) {
+                StoryCell cell = (StoryCell) recyclerListView.getChildAt(itemIndex);
+                if (i != 0) {
+                    cell.setTranslationY(maxY * (1f - collapsedProgress1) * (i / (listItemsCollapsedIndices.size() - 1f)));
+                }
+                //Log.e("STAS", "idnex = " + i + "y " + (maxY * collapsedProgress1 * ((i + 1f) / minItems)));
+            }
+        }
 
         for (int i = 0; i < viewsDrawInParent.size(); i++) {
             viewsDrawInParent.get(i).drawInParent = false;
@@ -674,7 +690,7 @@ public class DialogStoriesCell extends FrameLayout implements NotificationCenter
         float progress = Math.min(collapsedProgress, collapsedProgress2);
         if (progress != 0) {
             float offset = (titleView.getMeasuredHeight() - titleView.getTextHeight()) / 2f;
-            titleView.setTranslationY(y + AndroidUtilities.dp(14) - offset + AndroidUtilities.dp(FAKE_TOP_PADDING));
+            titleView.setTranslationY(minY + AndroidUtilities.dp(14) - offset + AndroidUtilities.dp(FAKE_TOP_PADDING));
             int cellWidth = AndroidUtilities.dp(72);
             lastViewRight += -cellWidth + AndroidUtilities.dp(6) + getAvatarRight(cellWidth, collapsedProgress) + AndroidUtilities.dp(12);
             // float toX = AndroidUtilities.dp(28) * Math.min(1, animateToCount) + AndroidUtilities.dp(14) * Math.max(0, animateToCount - 1);
