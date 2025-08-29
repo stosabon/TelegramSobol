@@ -581,7 +581,14 @@ public class DialogStoriesCell extends FrameLayout implements NotificationCenter
                 int itemIndex = listItemsCollapsedIndices.get(i);
                 if (itemIndex < recyclerListView.getChildCount()) {
                     StoryCell cell = (StoryCell) recyclerListView.getChildAt(itemIndex);
-                    cell.setTranslationY(minY - maxY);
+                    float delta = minY - maxY;
+                    float extraTranslation;
+                    if (i == 0) {
+                        extraTranslation = 0f;
+                    } else {
+                        extraTranslation = maxY * (1f - collapsedProgress1) * (i / (listItemsCollapsedIndices.size() - 1f));
+                    }
+                    cell.setTranslationY(delta + extraTranslation);
                 }
             }
         }
@@ -848,36 +855,6 @@ public class DialogStoriesCell extends FrameLayout implements NotificationCenter
                     view.setTranslationY(0);
                 });
             }
-
-            //if (storiesBounceAnimatorSet != null) {
-            //    storiesBounceAnimatorSet.removeAllListeners();
-            //    storiesBounceAnimatorSet.cancel();
-            //    storiesBounceAnimatorSet = null;
-            //}
-            //
-            //if (animated) {
-            //    storiesBounceAnimatorSet = new AnimatorSet();
-            //    ArrayList<Animator> scaleUpAnimators = new ArrayList<>();
-            //    ArrayList<Animator> scaleDownAnimators = new ArrayList<>();
-            //
-            //    AndroidUtilities.forEachViews(recyclerListView, view -> {
-            //        scaleUpAnimators.add(ObjectAnimator.ofFloat(view, View.TRANSLATION_X, 0,  1000));
-            //        scaleUpAnimators.add(ObjectAnimator.ofFloat(view, View.TRANSLATION_Y, 0, 1000));
-            //        scaleDownAnimators.add(ObjectAnimator.ofFloat(view, View.TRANSLATION_X, 1000, 0));
-            //        scaleDownAnimators.add(ObjectAnimator.ofFloat(view, View.TRANSLATION_Y, 1000, 0));
-            //    });
-            //
-            //    AnimatorSet scaleUpSet = new AnimatorSet();
-            //    scaleUpSet.playTogether(scaleUpAnimators);
-            //    scaleUpSet.setDuration(2500);
-            //
-            //    AnimatorSet scaleDownSet = new AnimatorSet();
-            //    scaleDownSet.playTogether(scaleDownAnimators);
-            //    scaleDownSet.setDuration(2500);
-            //
-            //    storiesBounceAnimatorSet.playSequentially(scaleUpSet, scaleDownSet);
-            //    storiesBounceAnimatorSet.start();
-            //}
         }
     }
 
