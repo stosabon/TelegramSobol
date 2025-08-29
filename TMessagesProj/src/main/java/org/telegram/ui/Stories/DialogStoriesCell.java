@@ -588,7 +588,25 @@ public class DialogStoriesCell extends FrameLayout implements NotificationCenter
                     } else {
                         extraTranslation = maxY * (1f - collapsedProgress1) * (i / (listItemsCollapsedIndices.size() - 1f));
                     }
+                    cell.setClipInParent(!(collapsedProgress1 < 1f && collapsedProgress1 > 0f));
                     cell.setTranslationY(delta + extraTranslation);
+                }
+            }
+        }
+        if (storiesAnimatorSet != null && storiesAnimatorSet.isRunning() && collapsed) {
+            for (int i = 0; i < listItemsCollapsedIndices.size(); i++) {
+                int itemIndex = listItemsCollapsedIndices.get(i);
+                if (itemIndex < recyclerListView.getChildCount()) {
+                    StoryCell cell = (StoryCell) recyclerListView.getChildAt(itemIndex);
+                    float delta = minY - maxY;
+                    float extraTranslation;
+                    if (i == 0) {
+                        extraTranslation = 0f;
+                    } else {
+                        extraTranslation = maxY * (1f - collapsedProgress1) * (i / (listItemsCollapsedIndices.size() - 1f));
+                    }
+                    float lerpTranslationY = AndroidUtilities.lerp(0f, delta + extraTranslation, collapsedProgress2);
+                    cell.setTranslationY(lerpTranslationY);
                 }
             }
         }
@@ -840,9 +858,11 @@ public class DialogStoriesCell extends FrameLayout implements NotificationCenter
                 });
                 storiesAnimatorSet = new AnimatorSet();
                 ArrayList<Animator> animators = new ArrayList<>();
-                AndroidUtilities.forEachViews(recyclerListView, view -> {
-                    animators.add(ObjectAnimator.ofFloat(view, View.TRANSLATION_Y, view.getTranslationY(), 0));
-                });
+                if (!collapsed) {
+                    AndroidUtilities.forEachViews(recyclerListView, view -> {
+                        animators.add(ObjectAnimator.ofFloat(view, View.TRANSLATION_Y, view.getTranslationY(), 0));
+                    });
+                }
                 animators.add(valueAnimator);
                 storiesAnimatorSet.playTogether(animators);
                 storiesAnimatorSet.setDuration(450);
