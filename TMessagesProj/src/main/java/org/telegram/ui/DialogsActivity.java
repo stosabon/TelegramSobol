@@ -1718,6 +1718,7 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
             actionBar.getTitlesContainer().setScaleX(1f);
             actionBar.getTitlesContainer().setAlpha(1f - progressToActionMode);
         }
+        actionBar.getTitlesContainer().setTranslationY(AndroidUtilities.lerp(-60f, 0f, containersAlpha));
     }
 
     public static float viewOffset = 0.0f;

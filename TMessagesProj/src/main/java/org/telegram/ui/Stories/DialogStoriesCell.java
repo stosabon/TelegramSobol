@@ -584,7 +584,11 @@ public class DialogStoriesCell extends FrameLayout implements NotificationCenter
                     float delta = minY - maxY;
                     float extraTranslation;
                     if (i == 0) {
-                        extraTranslation = 0f;
+                        if (listItemsCollapsedIndices.size() == 1) {
+                            extraTranslation = maxY - minY;
+                        } else {
+                            extraTranslation = 0f;
+                        }
                     } else {
                         extraTranslation = maxY * (1f - collapsedProgress1) * (i / (listItemsCollapsedIndices.size() - 1f));
                     }
@@ -601,7 +605,11 @@ public class DialogStoriesCell extends FrameLayout implements NotificationCenter
                     float delta = minY - maxY;
                     float extraTranslation;
                     if (i == 0) {
-                        extraTranslation = 0f;
+                        if (listItemsCollapsedIndices.size() == 1) {
+                            extraTranslation = maxY - minY;
+                        } else {
+                            extraTranslation = 0f;
+                        }
                     } else {
                         extraTranslation = maxY * (1f - collapsedProgress1) * (i / (listItemsCollapsedIndices.size() - 1f));
                     }
