@@ -24,6 +24,8 @@ import android.view.View;
 import android.view.accessibility.AccessibilityNodeInfo;
 import android.widget.FrameLayout;
 
+import androidx.core.content.ContextCompat;
+
 import org.telegram.messenger.AndroidUtilities;
 import org.telegram.messenger.ChatThemeController;
 import org.telegram.messenger.DocumentObject;
@@ -79,6 +81,7 @@ public class ThemeSmallPreviewView extends FrameLayout implements NotificationCe
     public ChatThemeBottomSheet.ChatThemeItem chatThemeItem;
     private BackupImageView backupImageView;
     private BackupImageView avatarImageView;
+    private Drawable switchThemePeerDrawable;
     private boolean hasAnimatedEmoji;
     private final int currentAccount;
     Runnable animationCancelRunnable;
@@ -97,6 +100,7 @@ public class ThemeSmallPreviewView extends FrameLayout implements NotificationCe
         setBackgroundColor(getThemedColor(Theme.key_dialogBackgroundGray));
 
         avatarImageView = new BackupImageView(context);
+        switchThemePeerDrawable = ContextCompat.getDrawable(context, R.drawable.msg_photo_switch2);
         avatarImageView.setRoundRadius(AndroidUtilities.dp(8));
         addView(avatarImageView, LayoutHelper.createFrame(16, 16));
 
@@ -352,6 +356,7 @@ public class ThemeSmallPreviewView extends FrameLayout implements NotificationCe
                 themeAvatarDrawable.setInfo(user);
                 avatarImageView.setImage(ImageLocation.getForUserOrChat(user, ImageLocation.TYPE_SMALL), "50_50", themeAvatarDrawable, user);
                 avatarImageView.setVisibility(View.VISIBLE);
+
             } else {
                 themeAvatarDrawable = null;
                 avatarImageView.setVisibility(View.GONE);
@@ -457,6 +462,7 @@ public class ThemeSmallPreviewView extends FrameLayout implements NotificationCe
         EmojiThemes.ThemeItem themeItem = chatThemeItem.chatTheme.getThemeItem(chatThemeItem.themeIndex);
         int color = themeItem.inBubbleColor;
         themeDrawable.inBubblePaint.setColor(color);
+        themeDrawable.inBubbleSelected = themeItem.inBubbleSelected;
         color = themeItem.outBubbleColor;
         themeDrawable.outBubblePaintSecond.setColor(color);
 
@@ -667,6 +673,7 @@ public class ThemeSmallPreviewView extends FrameLayout implements NotificationCe
         private final Paint strokePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final Paint outBubblePaintSecond = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final Paint inBubblePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private boolean inBubbleSelected;
         Drawable previewDrawable;
 
         ThemeDrawable() {
@@ -775,6 +782,9 @@ public class ThemeSmallPreviewView extends FrameLayout implements NotificationCe
                     }
 
                     if (currentType == TYPE_DEFAULT || currentType == TYPE_CHANNEL) {
+                        if (inBubbleSelected && alpha > 0.5f) {
+                            inBubblePaint.setAlpha((int) (255 * 0.5f));
+                        }
                         canvas.drawRoundRect(rectF, rectF.height() * 0.5f, rectF.height() * 0.5f, inBubblePaint);
                     } else {
                         messageDrawableIn.setBounds((int) rectF.left - AndroidUtilities.dp(4), (int) rectF.top - AndroidUtilities.dp(2), (int) rectF.right, (int) rectF.bottom + AndroidUtilities.dp(2));
@@ -783,6 +793,15 @@ public class ThemeSmallPreviewView extends FrameLayout implements NotificationCe
                     }
                     avatarImageView.setTranslationX(rectF.left + AndroidUtilities.dp(2));
                     avatarImageView.setTranslationY(rectF.top + (rectF.bottom - rectF.top - avatarImageView.getHeight()) / 2f);
+                    if (chatThemeItem.chatTheme != null && chatThemeItem.chatTheme.gift != null && chatThemeItem.chatTheme.gift.theme_peer != null) {
+                        switchThemePeerDrawable.setBounds(
+                                (int) (rectF.right - AndroidUtilities.dp(4) - AndroidUtilities.dp(14)),
+                                (int) bubbleTop + AndroidUtilities.dp(4),
+                                (int) (rectF.right - AndroidUtilities.dp(4)),
+                                (int) bubbleTop + AndroidUtilities.dp(4) + AndroidUtilities.dp(14)
+                        );
+                        switchThemePeerDrawable.draw(canvas);
+                    }
                 }
             }
         }

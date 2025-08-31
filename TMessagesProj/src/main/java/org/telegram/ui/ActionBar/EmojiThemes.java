@@ -1,5 +1,7 @@
 package org.telegram.ui.ActionBar;
 
+import static org.telegram.ui.Stars.StarsController.findAttribute;
+
 import android.app.Activity;
 import android.content.SharedPreferences;
 import android.graphics.Bitmap;
@@ -8,6 +10,8 @@ import android.graphics.drawable.BitmapDrawable;
 import android.util.Log;
 import android.util.Pair;
 import android.util.SparseIntArray;
+
+import androidx.core.graphics.ColorUtils;
 
 import org.telegram.messenger.AndroidUtilities;
 import org.telegram.messenger.ApplicationLoader;
@@ -629,7 +633,14 @@ public class EmojiThemes {
                 continue;
             }
             SparseIntArray colorsMap = getPreviewColors(currentAccount, i);
-            items.get(i).inBubbleColor = getOrDefault(colorsMap, Theme.key_chat_inBubble);
+            TL_stars.starGiftAttributeBackdrop backdrop = null;
+            if (gift != null && gift.theme_peer != null) {
+                backdrop = findAttribute(gift.attributes, TL_stars.starGiftAttributeBackdrop.class);
+                if (backdrop != null) {
+                    items.get(i).inBubbleSelected = true;
+                }
+            }
+            items.get(i).inBubbleColor = backdrop == null ? getOrDefault(colorsMap, Theme.key_chat_inBubble) : (ColorUtils.blendARGB(backdrop.edge_color | 0xFF000000, backdrop.pattern_color | 0xFF000000, .25f));
             items.get(i).outBubbleColor = getOrDefault(colorsMap, Theme.key_chat_outBubble);
 
             items.get(i).outLineColor = getOrDefault(colorsMap, Theme.key_featuredStickers_addButton);
@@ -721,6 +732,7 @@ public class EmojiThemes {
         private String wallpaperLink;
 
         public int inBubbleColor;
+        public boolean inBubbleSelected;
         public int outBubbleColor;
         public int outLineColor;
         public int patternBgColor;
