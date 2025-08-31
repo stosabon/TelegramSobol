@@ -2950,6 +2950,28 @@ public class StarGiftSheet extends BottomSheetWithRecyclerListView implements No
             }
             name_hidden = false;
             repollSavedStarGift();
+        } else if (messageObject.messageOwner.action instanceof TLRPC.TL_messageActionSetChatTheme && ((TLRPC.TL_messageActionSetChatTheme) messageObject.messageOwner.action).theme instanceof TLRPC.TL_chatThemeUniqueGift) {
+            final TLRPC.TL_messageActionSetChatTheme action = (TLRPC.TL_messageActionSetChatTheme) messageObject.messageOwner.action;
+            TL_stars.StarGift gift = ((TLRPC.TL_chatThemeUniqueGift) ((TLRPC.TL_messageActionSetChatTheme) messageObject.messageOwner.action).theme).gift;
+            if (!(gift instanceof TL_stars.TL_starGiftUnique)) {
+                return this;
+            }
+            message = null;
+            topView.setTransferAvailable(true);
+            // TODO commented params are missing here. Explore how to get them or we dont need them
+            //set((TL_stars.TL_starGiftUnique) action.gift, (action.flags & 16) != 0, refunded = action.refunded);
+            set((TL_stars.TL_starGiftUnique) gift, (action.flags & 16) != 0, refunded = false);
+            converted = false;
+            //saved = action.saved;
+            saved = false;
+            stargift = gift;
+            //out = (!action.upgrade == messageObject.isOutOwner());
+            out = true;
+            if (messageObject.getDialogId() == selfId) {
+                out = false;
+            }
+            name_hidden = false;
+            repollSavedStarGift();
         } else {
             return this;
         }

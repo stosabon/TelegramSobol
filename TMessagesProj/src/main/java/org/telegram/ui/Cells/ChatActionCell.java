@@ -86,6 +86,7 @@ import org.telegram.messenger.utils.tlutils.TlUtils;
 import org.telegram.tgnet.ConnectionsManager;
 import org.telegram.tgnet.TLObject;
 import org.telegram.tgnet.TLRPC;
+import org.telegram.tgnet.tl.TL_stars;
 import org.telegram.tgnet.tl.TL_stories;
 import org.telegram.ui.ActionBar.ActionBar;
 import org.telegram.ui.ActionBar.BaseFragment;
@@ -719,7 +720,7 @@ public class ChatActionCell extends BaseCell implements DownloadController.FileD
             } else {
                 radialProgress.setIcon(MediaActionDrawable.ICON_CANCEL, !messageIdChanged, !messageIdChanged);
             }
-        } else if (messageObject.type == MessageObject.TYPE_GIFT_STARS || messageObject.type == MessageObject.TYPE_GIFT_PREMIUM || messageObject.type == MessageObject.TYPE_GIFT_PREMIUM_CHANNEL) {
+        } else if (messageObject.type == MessageObject.TYPE_GIFT_STARS || messageObject.type == MessageObject.TYPE_GIFT_PREMIUM || messageObject.type == MessageObject.TYPE_GIFT_PREMIUM_CHANNEL || messageObject.type == MessageObject.TYPE_GIFT_CHAT_THEME) {
             imageReceiver.setRoundRadius(0);
 
             if (USE_PREMIUM_GIFT_LOCAL_STICKER) {
@@ -744,6 +745,15 @@ public class ChatActionCell extends BaseCell implements DownloadController.FileD
                     final TLRPC.TL_messageActionStarGiftUnique action = (TLRPC.TL_messageActionStarGiftUnique) messageObject.messageOwner.action;
                     if (action.gift != null) {
                         document = action.gift.getDocument();
+                    }
+                } else if (messageObject.messageOwner.action instanceof TLRPC.TL_messageActionSetChatTheme && ((TLRPC.TL_messageActionSetChatTheme) messageObject.messageOwner.action).theme instanceof TLRPC.TL_chatThemeUniqueGift) {
+                    TL_stars.StarGift gift = ((TLRPC.TL_chatThemeUniqueGift) ((TLRPC.TL_messageActionSetChatTheme) messageObject.messageOwner.action).theme).gift;
+                    if (gift != null) {
+                        document = gift.getDocument();
+                        int a = 2;
+                    }
+                    if (gift != null) {
+                        int b = 2;
                     }
                 } else {
                     if (messageObject.messageOwner.action instanceof TLRPC.TL_messageActionGiftTon) {
@@ -1178,9 +1188,12 @@ public class ChatActionCell extends BaseCell implements DownloadController.FileD
                             } else if (messageObject.type == MessageObject.TYPE_GIFT_PREMIUM) {
                                 playSoundEffect(SoundEffectConstants.CLICK);
                                 openPremiumGiftPreview();
-                            } else if (messageObject.type == MessageObject.TYPE_GIFT_STARS) {
+                            }  else if (messageObject.type == MessageObject.TYPE_GIFT_STARS) {
                                 playSoundEffect(SoundEffectConstants.CLICK);
                                 openStarsGiftTransaction();
+                            } else if (messageObject.type == MessageObject.TYPE_GIFT_CHAT_THEME) {
+                                playSoundEffect(SoundEffectConstants.CLICK);
+                                openChatThemeUniqueGift();
                             } else if (messageObject.messageOwner != null && messageObject.messageOwner.action instanceof TLRPC.TL_messageActionSuggestedPostApproval && ((TLRPC.TL_messageActionSuggestedPostApproval) messageObject.messageOwner.action).balance_too_low) {
                                 playSoundEffect(SoundEffectConstants.CLICK);
                                 openStarsNeedSheet();
@@ -1229,6 +1242,8 @@ public class ChatActionCell extends BaseCell implements DownloadController.FileD
                             openPremiumGiftPreview();
                         } else if (messageObject.type == MessageObject.TYPE_GIFT_STARS) {
                             openStarsGiftTransaction();
+                        } else if (messageObject.type == MessageObject.TYPE_GIFT_CHAT_THEME) {
+                            openChatThemeUniqueGift();
                         } else if (delegate != null) {
                             boolean consumed = false;
                             if (messageObject.type == MessageObject.TYPE_SUGGEST_PHOTO) {
@@ -1393,6 +1408,12 @@ public class ChatActionCell extends BaseCell implements DownloadController.FileD
         }
     }
 
+    private void openChatThemeUniqueGift() {
+        new StarGiftSheet(getContext(), currentAccount, currentMessageObject.getDialogId(), themeDelegate)
+                .set(currentMessageObject)
+                .show();
+    }
+
     private void openStarsNeedSheet() {
         final MessageSuggestionParams params = currentMessageObject.obtainSuggestionOffer();
         if (params.amount == null || params.amount.currency != AmountUtils.Currency.STARS) {
@@ -1465,6 +1486,9 @@ public class ChatActionCell extends BaseCell implements DownloadController.FileD
     }
 
     private void createLayout(CharSequence text, int width) {
+        if (currentMessageObject != null && currentMessageObject.messageOwner.action instanceof TLRPC.TL_messageActionSetChatTheme && ((TLRPC.TL_messageActionSetChatTheme) currentMessageObject.messageOwner.action).theme instanceof TLRPC.TL_chatThemeUniqueGift) {
+            return;
+        }
         int maxWidth = width - dp(30);
         if (isSideMenued) {
             maxWidth -= dp(64);
@@ -2047,6 +2071,9 @@ public class ChatActionCell extends BaseCell implements DownloadController.FileD
                 }
                 String actionName = getString(isGiftCode() && !isSelfGiftCode() ? R.string.GiftPremiumUseGiftBtn : R.string.ActionGiftPremiumView);
                 createGiftPremiumLayouts(formatPluralStringComma("ActionGiftPremiumTitle2", messageObject.messageOwner.action.months), null, null, messageText, true, actionName, 11, null, giftRectSize, false, false);
+            } else if (messageObject.type == MessageObject.TYPE_GIFT_CHAT_THEME) {
+                String actionName = getString(R.string.ActionGiftPremiumView);
+                createGiftPremiumLayouts(messageObject.messageText, null, null, null, true, actionName, 11, null, giftRectSize, false, false);
             } else if (messageObject.type == MessageObject.TYPE_SUGGEST_PHOTO) {
                 TLRPC.TL_messageActionSuggestProfilePhoto actionSuggestProfilePhoto = (TLRPC.TL_messageActionSuggestProfilePhoto) messageObject.messageOwner.action;
                 String description;
@@ -3298,7 +3325,7 @@ public class ChatActionCell extends BaseCell implements DownloadController.FileD
     }
 
     private boolean isButtonLayout(MessageObject messageObject) {
-        return messageObject != null && (messageObject.type == MessageObject.TYPE_GIFT_STARS || messageObject.type == MessageObject.TYPE_GIFT_PREMIUM || messageObject.type == MessageObject.TYPE_GIFT_PREMIUM_CHANNEL || isNewStyleButtonLayout());
+        return messageObject != null && (messageObject.type == MessageObject.TYPE_GIFT_STARS || messageObject.type == MessageObject.TYPE_GIFT_PREMIUM || messageObject.type == MessageObject.TYPE_GIFT_PREMIUM_CHANNEL || isNewStyleButtonLayout() || messageObject.type == MessageObject.TYPE_GIFT_CHAT_THEME);
     }
 
     private boolean isGiftChannel(MessageObject messageObject) {

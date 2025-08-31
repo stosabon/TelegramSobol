@@ -13,10 +13,12 @@ import android.graphics.BitmapShader;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
+import android.graphics.Path;
 import android.graphics.Point;
 import android.graphics.PorterDuff;
 import android.graphics.PorterDuffColorFilter;
 import android.graphics.PorterDuffXfermode;
+import android.graphics.RectF;
 import android.graphics.Shader;
 import android.graphics.drawable.Drawable;
 import android.net.Uri;
@@ -973,8 +975,31 @@ public class ChatThemeBottomSheet extends BottomSheet implements NotificationCen
             TLRPC.User user = chatActivity.getCurrentUser();
             if (!force && newTheme.gift != null && newTheme.gift.theme_peer != null && user != null && user.id != newTheme.gift.theme_peer.user_id) {
                 TLRPC.User userWithTheme = MessagesController.getInstance(currentAccount).getUser(newTheme.gift.theme_peer.user_id);
+                // TODO it should be standalone view with gift and background pattern behind because it is also used in chat message... see StarGiftUniqueActionLayout for reference
+                FrameLayout topViewLayout = new FrameLayout(getContext()) {
 
-                FrameLayout topViewLayout = new FrameLayout(getContext());
+                    private final Path clipPath = new Path();
+                    private final RectF rectF = new RectF(0, 0, AndroidUtilities.dp(52), AndroidUtilities.dp(52));
+                    @Override
+                    protected void dispatchDraw(@NonNull Canvas canvas) {
+                        canvas.save();
+                        canvas.translate(getMeasuredWidth() / 2f - AndroidUtilities.dp(48) - AndroidUtilities.dp(26), getMeasuredHeight() / 2f - AndroidUtilities.dp(26));
+                        canvas.clipPath(clipPath);
+                        selectedItem.previewDrawable.draw(canvas);
+                        canvas.restore();
+                        super.dispatchDraw(canvas);
+                    }
+
+                    @Override
+                    protected void onSizeChanged(int w, int h, int oldw, int oldh) {
+                        super.onSizeChanged(w, h, oldw, oldh);
+                        if (w == oldw && h == oldh) {
+                            return;
+                        }
+                        clipPath.reset();
+                        clipPath.addRoundRect(rectF, AndroidUtilities.dp(13f), AndroidUtilities.dp(13f), Path.Direction.CW);
+                    }
+                };
 
                 BackupImageView avatarImageView = new BackupImageView(getContext());
                 avatarImageView.setRoundRadius(dp(26));
@@ -993,10 +1018,10 @@ public class ChatThemeBottomSheet extends BottomSheet implements NotificationCen
                     thumb = DocumentObject.getSvgThumb(document, Theme.key_emptyListPlaceholder, 0.2f);
                 }
                 giftImageView.setImage(ImageLocation.getForDocument(document), "50_50", thumb, null);
-                topViewLayout.addView(giftImageView, LayoutHelper.createFrame(52, 52, Gravity.CENTER, 0, 0, 48, 0));
+                topViewLayout.addView(giftImageView, LayoutHelper.createFrame(36, 36, Gravity.CENTER, 0, 0, 48, 0));
 
-                SpannableString usernameString = new SpannableString(UserObject.getUserName(user));
-                usernameString.setSpan(new TypefaceSpan(AndroidUtilities.bold()), 0, UserObject.getUserName(user).length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+                SpannableString usernameString = new SpannableString(UserObject.getUserName(userWithTheme));
+                usernameString.setSpan(new TypefaceSpan(AndroidUtilities.bold()), 0, UserObject.getUserName(userWithTheme).length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
                 AlertDialog.Builder builder = new AlertDialog.Builder(getContext(), resourcesProvider);
                 builder.setTopView(topViewLayout);
                 builder.setMessage(AndroidUtilities.replaceCharSequence("%s", "This gift is already in your chat with %s. Remove it there and use it here instead?", usernameString));

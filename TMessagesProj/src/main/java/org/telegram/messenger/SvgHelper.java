@@ -39,6 +39,7 @@ import android.graphics.RectF;
 import android.graphics.Shader;
 import android.graphics.drawable.Drawable;
 import android.os.Build;
+import android.util.Pair;
 import android.util.SparseArray;
 
 import androidx.core.graphics.ColorUtils;
@@ -59,6 +60,7 @@ import java.io.StringReader;
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 
 import javax.xml.parsers.SAXParser;
 import javax.xml.parsers.SAXParserFactory;
@@ -130,7 +132,6 @@ public class SvgHelper {
         private float colorAlpha;
         private float crossfadeAlpha = 1.0f;
         SparseArray<Paint> overridePaintByPosition = new SparseArray<>();
-
         private static boolean lite = LiteMode.isEnabled(LiteMode.FLAG_CHAT_BACKGROUND);
         public static void updateLiteValues() {
             lite = LiteMode.isEnabled(LiteMode.FLAG_CHAT_BACKGROUND);
@@ -479,6 +480,24 @@ public class SvgHelper {
             xr.setContentHandler(handler);
             xr.parse(new InputSource(stream));
             return handler.getBitmap();
+        } catch (Exception e) {
+            FileLog.e(e);
+            return null;
+        }
+    }
+
+    public static Pair<Bitmap, List<RectF>> getBitmapWithPlaceholders(File file, int width, int height, boolean white) {
+        try (FileInputStream stream = new FileInputStream(file)) {
+            SAXParserFactory spf = SAXParserFactory.newInstance();
+            SAXParser sp = spf.newSAXParser();
+            XMLReader xr = sp.getXMLReader();
+            SVGHandler handler = new SVGHandler(width, height, white ? 0xffffffff : null, false, 1f);
+            if (!white) {
+                handler.alphaOnly = true;
+            }
+            xr.setContentHandler(handler);
+            xr.parse(new InputSource(stream));
+            return new Pair(handler.getBitmap(), handler.getPlaceholders());
         } catch (Exception e) {
             FileLog.e(e);
             return null;
@@ -1166,6 +1185,9 @@ public class SvgHelper {
             if ("none".equals(atts.getString("display"))) {
                 return false;
             }
+            if (giftPatterns) {
+                return false;
+            }
             String fillString = atts.getString("fill");
             if (fillString != null && fillString.startsWith("url(#")) {
                 String id = fillString.substring("url(#".length(), fillString.length() - 1);
@@ -1191,6 +1213,9 @@ public class SvgHelper {
 
         private boolean doStroke(Properties atts) {
             if ("none".equals(atts.getString("display"))) {
+                return false;
+            }
+            if (giftPatterns) {
                 return false;
             }
             Integer color = atts.getHex("stroke");
@@ -1242,6 +1267,8 @@ public class SvgHelper {
         }
 
         private boolean boundsMode;
+        private boolean giftPatterns;
+        private List<RectF> placeholders;
         private StringBuilder styles;
 
         private void pushTransform(Attributes atts) {
@@ -1323,6 +1350,9 @@ public class SvgHelper {
                     if ("bounds".equalsIgnoreCase(getStringAttr("id", atts))) {
                         boundsMode = true;
                     }
+                    if ("GiftPatterns".equalsIgnoreCase(getStringAttr("id", atts))) {
+                        giftPatterns = true;
+                    }
                     break;
                 case "rect": {
                     Float x = getFloatAttr("x", atts);
@@ -1336,6 +1366,12 @@ public class SvgHelper {
                     Float width = getFloatAttr("width", atts);
                     Float height = getFloatAttr("height", atts);
                     Float rx = getFloatAttr("rx", atts, null);
+                    if (giftPatterns) {
+                        if (placeholders == null) {
+                            placeholders = new ArrayList<>();
+                        }
+                        placeholders.add(new RectF(x, y, x + width, y + height));
+                    }
                     pushTransform(atts);
                     Properties props = new Properties(atts, globalStyles);
                     if (doFill(props)) {
@@ -1534,6 +1570,9 @@ public class SvgHelper {
                 case "svg":
                     break;
                 case "g":
+                    giftPatterns = false;
+                    boundsMode = false;
+                    break;
                 case "defs":
                 case "clipPath":
                     boundsMode = false;
@@ -1547,6 +1586,10 @@ public class SvgHelper {
 
         public SvgDrawable getDrawable() {
             return drawable;
+        }
+
+        public List<RectF> getPlaceholders() {
+            return placeholders;
         }
     }
 

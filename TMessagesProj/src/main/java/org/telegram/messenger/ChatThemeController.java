@@ -12,6 +12,7 @@ import org.telegram.tgnet.ResultCallback;
 import org.telegram.tgnet.SerializedData;
 import org.telegram.tgnet.TLRPC;
 import org.telegram.tgnet.tl.TL_account;
+import org.telegram.ui.ActionBar.AlertDialog;
 import org.telegram.ui.ActionBar.EmojiThemes;
 import org.telegram.ui.ActionBar.Theme;
 import org.telegram.ui.ChatBackgroundDrawable;
@@ -411,6 +412,7 @@ public class ChatThemeController extends BaseController {
                 request.theme = input;
             }
             request.peer = getMessagesController().getInputPeer(dialogId);
+            // TODO should we clear theme for previous peer manually or BE should send updated info?
             getConnectionsManager().sendRequest(request, null);
         }
     }

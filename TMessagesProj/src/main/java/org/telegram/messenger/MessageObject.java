@@ -149,6 +149,7 @@ public class MessageObject {
     public static final int TYPE_GIVEAWAY_RESULTS = 28;
     public static final int TYPE_PAID_MEDIA = 29; // messageMediaPaidMedia with stars
     public static final int TYPE_GIFT_STARS = 30;
+    public static final int TYPE_GIFT_CHAT_THEME = 31;
 
     public int localType;
     public String localName;
@@ -5302,7 +5303,7 @@ public class MessageObject {
                     if (chatTheme instanceof TLRPC.TL_chatTheme) {
                         iconText = ((TLRPC.TL_chatTheme) chatTheme).emoticon;
                     } else if (chatTheme instanceof TLRPC.TL_chatThemeUniqueGift) {
-                        iconText = ((TLRPC.TL_chatThemeUniqueGift) chatTheme).gift.slug;
+                        iconText = ((TLRPC.TL_chatThemeUniqueGift) chatTheme).gift.title + " #" + ((TLRPC.TL_chatThemeUniqueGift) chatTheme).gift.num;
                     } else {
                         iconText = "";
                     }
@@ -5944,6 +5945,9 @@ public class MessageObject {
                 type = -1;
             } else if (messageOwner.action instanceof TLRPC.TL_messageActionPhoneCall || messageOwner.action instanceof TLRPC.TL_messageActionConferenceCall) {
                 type = TYPE_PHONE_CALL;
+            } else if (messageOwner.action instanceof TLRPC.TL_messageActionSetChatTheme && ((TLRPC.TL_messageActionSetChatTheme) messageOwner.action).theme instanceof TLRPC.TL_chatThemeUniqueGift) {
+                contentType = 1;
+                type = TYPE_GIFT_CHAT_THEME;
             } else {
                 contentType = 1;
                 type = TYPE_DATE;
@@ -9800,7 +9804,7 @@ public class MessageObject {
             return dp(82);
         } else if (type == 10) {
             return dp(30);
-        } else if (type == TYPE_ACTION_PHOTO || type == TYPE_GIFT_PREMIUM || type == TYPE_GIFT_STARS || type == TYPE_GIFT_PREMIUM_CHANNEL || type == TYPE_SUGGEST_PHOTO) {
+        } else if (type == TYPE_ACTION_PHOTO || type == TYPE_GIFT_PREMIUM || type == TYPE_GIFT_STARS || type == TYPE_GIFT_PREMIUM_CHANNEL || type == TYPE_SUGGEST_PHOTO || type == TYPE_GIFT_CHAT_THEME) {
             return dp(50);
         } else if (type == TYPE_ROUND_VIDEO) {
             return AndroidUtilities.roundMessageSize;
@@ -11349,7 +11353,7 @@ public class MessageObject {
     }
 
     public boolean isAnyGift() {
-        return type == MessageObject.TYPE_GIFT_STARS || type == MessageObject.TYPE_GIFT_PREMIUM || type == MessageObject.TYPE_GIFT_PREMIUM_CHANNEL;
+        return type == MessageObject.TYPE_GIFT_STARS || type == MessageObject.TYPE_GIFT_PREMIUM || type == MessageObject.TYPE_GIFT_PREMIUM_CHANNEL || type == MessageObject.TYPE_GIFT_CHAT_THEME;
     }
 
     private static CharSequence[] userSpan;

@@ -211,7 +211,9 @@ public class MessagePreviewParams {
     public void updateReply(MessageObject replyMessageObject, MessageObject.GroupedMessages group, long dialogId, ChatActivity.ReplyQuote replyQuote) {
         if (isSecret || replyMessageObject == null || replyMessageObject.type == MessageObject.TYPE_DATE || replyMessageObject.type == MessageObject.TYPE_ACTION_PHOTO
                 || replyMessageObject.type == MessageObject.TYPE_ACTION_WALLPAPER || replyMessageObject.type == MessageObject.TYPE_SUGGEST_PHOTO
-                || replyMessageObject.type == MessageObject.TYPE_GIFT_PREMIUM || replyMessageObject.type == MessageObject.TYPE_GIFT_PREMIUM_CHANNEL || replyMessageObject.type == MessageObject.TYPE_PHONE_CALL) {
+                || replyMessageObject.type == MessageObject.TYPE_GIFT_PREMIUM || replyMessageObject.type == MessageObject.TYPE_GIFT_PREMIUM_CHANNEL || replyMessageObject.type == MessageObject.TYPE_PHONE_CALL
+                || replyMessageObject.type == MessageObject.TYPE_GIFT_CHAT_THEME
+        ) {
             replyMessageObject = null;
             replyQuote = null;
         }

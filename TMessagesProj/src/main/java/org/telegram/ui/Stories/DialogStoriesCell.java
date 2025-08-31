@@ -1520,6 +1520,7 @@ public class DialogStoriesCell extends FrameLayout implements NotificationCenter
                     failT *= params.progressToSegments;
 
                     params.animate = !progressWasDrawn;
+                    // TODO allow exclude custom angle arcs
                     params.progressToArc = getArcProgress(cx, radius);
                     params.isLast = isLast;
                     params.isFirst = isFirst;
