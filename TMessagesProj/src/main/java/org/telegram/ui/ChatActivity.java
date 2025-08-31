@@ -25437,7 +25437,7 @@ public class ChatActivity extends BaseFragment implements NotificationCenter.Not
             }
             if (lastActionSetChatThemeMessageObject != null && lastActionSetChatThemeMessageObject.messageOwner != null && lastActionSetChatThemeMessageObject.messageOwner.action instanceof TLRPC.TL_messageActionSetChatTheme) {
                 TLRPC.TL_messageActionSetChatTheme action = (TLRPC.TL_messageActionSetChatTheme) lastActionSetChatThemeMessageObject.messageOwner.action;
-                setChatThemeEmoticon(action.emoticon);
+                setChatTheme(action.theme);
             }
             if (webpagesToReload != null) {
                 getMessagesController().reloadWebPages(dialog_id, webpagesToReload, chatMode);
@@ -41837,27 +41837,42 @@ public class ChatActivity extends BaseFragment implements NotificationCenter.Not
 
     private void checkThemeEmoticonOrWallpaper() {
         getNotificationCenter().doOnIdle(() -> {
-            String emoticon = null;
+            TLRPC.ChatTheme chatTheme = null;
             if (userInfo != null) {
-                emoticon = userInfo.theme_emoticon;
+                chatTheme = userInfo.theme;
             }
 //            if (emoticon == null && chatInfo != null) {
 //                emoticon = chatInfo.theme_emoticon;
 //            }
-            setChatThemeEmoticon(emoticon);
+            setChatTheme(chatTheme);
         });
     }
 
-    private void setChatThemeEmoticon(final String emoticon) {
+    private void setChatTheme(final TLRPC.ChatTheme chatTheme) {
         if (themeDelegate == null || parentThemeDelegate != null) {
             return;
         }
         ChatThemeController chatThemeController = ChatThemeController.getInstance(currentAccount);
-        chatThemeController.setDialogTheme(dialog_id, emoticon, false);
-        if (!TextUtils.isEmpty(emoticon)) {
-            chatThemeController.requestChatTheme(emoticon, result -> {
-                themeDelegate.setCurrentTheme(result, themeDelegate.wallpaper,openAnimationStartTime != 0, null);
-            });
+        chatThemeController.setDialogTheme(dialog_id, chatTheme, false);
+        String key;
+        if (chatTheme instanceof TLRPC.TL_chatTheme) {
+            key = ((TLRPC.TL_chatTheme) chatTheme).emoticon;
+            if (!TextUtils.isEmpty(key)) {
+                chatThemeController.requestChatTheme(key, result -> {
+                    themeDelegate.setCurrentTheme(result, themeDelegate.wallpaper,openAnimationStartTime != 0, null);
+                });
+            }
+        } else if (chatTheme instanceof TLRPC.TL_chatThemeUniqueGift) {
+            key = ((TLRPC.TL_chatThemeUniqueGift) chatTheme).gift.slug;
+            if (!TextUtils.isEmpty(key)) {
+                chatThemeController.requestUniqueGiftChatTheme(key, result -> {
+                    if (result == null) {
+                        themeDelegate.setCurrentTheme(new EmojiThemes(currentAccount, (TLRPC.TL_chatThemeUniqueGift) chatTheme, false), themeDelegate.wallpaper,openAnimationStartTime != 0, null);
+                    } else {
+                        themeDelegate.setCurrentTheme(result, themeDelegate.wallpaper,openAnimationStartTime != 0, null);
+                    }
+                });
+            }
         }
         TLRPC.WallPaper wallPaper = chatThemeController.getDialogWallpaper(dialog_id);
         themeDelegate.setCurrentTheme(themeDelegate.chatTheme, wallPaper, openAnimationStartTime != 0, null);
@@ -42063,10 +42078,10 @@ public class ChatActivity extends BaseFragment implements NotificationCenter.Not
             }
             final EmojiThemes prevTheme = this.chatTheme;
             boolean newIsDark = forceDark != null ? forceDark : this.isDark;//Theme.getActiveTheme().isDark();
-            String newEmoticon = chatTheme != null ? chatTheme.getEmoticon() : null;
-            String oldEmoticon = this.chatTheme != null ? this.chatTheme.getEmoticon() : null;
+            String newKey = chatTheme != null ? chatTheme.getKey() : null;
+            String oldKey = this.chatTheme != null ? this.chatTheme.getKey() : null;
             TLRPC.WallPaper oldWallpaper = this.wallpaper;
-            if (!force && (!isThemeChangeAvailable(false) || (TextUtils.equals(oldEmoticon, newEmoticon) && this.isDark == newIsDark && ChatThemeController.equals(newWallpaper, oldWallpaper)))) {
+            if (!force && (!isThemeChangeAvailable(false) || (TextUtils.equals(oldKey, newKey) && this.isDark == newIsDark && ChatThemeController.equals(newWallpaper, oldWallpaper)))) {
                 return;
             }
 
@@ -42624,7 +42639,14 @@ public class ChatActivity extends BaseFragment implements NotificationCenter.Not
                     }
                     long themeId = pair.first;
                     Bitmap bitmap = pair.second;
-                    if (this.chatTheme != null && themeId == this.chatTheme.getTlTheme(isDark ? 1 : 0).id && bitmap != null) {
+                    boolean themeIdMatches = false;
+                    if (this.chatTheme.getTlTheme(isDark ? 1 : 0) != null) {
+                        themeIdMatches = this.chatTheme.getTlTheme(isDark ? 1 : 0).id == themeId;
+                    } else if (this.chatTheme.getGiftTheme(isDark ? 1 : 0) != null) {
+                        themeIdMatches = this.chatTheme.getGiftTheme(isDark ? 1 : 0).gift.id == themeId;
+
+                    }
+                    if (this.chatTheme != null && themeIdMatches && bitmap != null) {
                         if (patternIntensityAnimator != null) {
                             patternIntensityAnimator.cancel();
                         }

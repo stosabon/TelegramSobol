@@ -34,6 +34,7 @@ import org.telegram.messenger.ImageLocation;
 import org.telegram.messenger.ImageReceiver;
 import org.telegram.messenger.LocaleController;
 import org.telegram.messenger.MediaDataController;
+import org.telegram.messenger.MessagesController;
 import org.telegram.messenger.NotificationCenter;
 import org.telegram.messenger.R;
 import org.telegram.messenger.SvgHelper;
@@ -77,12 +78,14 @@ public class ThemeSmallPreviewView extends FrameLayout implements NotificationCe
     private StaticLayout textLayout;
     public ChatThemeBottomSheet.ChatThemeItem chatThemeItem;
     private BackupImageView backupImageView;
+    private BackupImageView avatarImageView;
     private boolean hasAnimatedEmoji;
     private final int currentAccount;
     Runnable animationCancelRunnable;
     private int currentType;
     int patternColor;
     private float selectionProgress;
+    private AvatarDrawable themeAvatarDrawable;
     ChatBackgroundDrawable chatBackgroundDrawable;
     boolean attached;
 
@@ -92,6 +95,11 @@ public class ThemeSmallPreviewView extends FrameLayout implements NotificationCe
         this.currentAccount = currentAccount;
         this.resourcesProvider = resourcesProvider;
         setBackgroundColor(getThemedColor(Theme.key_dialogBackgroundGray));
+
+        avatarImageView = new BackupImageView(context);
+        avatarImageView.setRoundRadius(AndroidUtilities.dp(8));
+        addView(avatarImageView, LayoutHelper.createFrame(16, 16));
+
         backupImageView = new BackupImageView(context);
         backupImageView.getImageReceiver().setCrossfadeWithOldImage(true);
         backupImageView.getImageReceiver().setAllowStartLottieAnimation(false);
@@ -197,6 +205,8 @@ public class ThemeSmallPreviewView extends FrameLayout implements NotificationCe
         TLRPC.Document document = null;
         if (item.chatTheme.getEmoticon() != null) {
             document = MediaDataController.getInstance(currentAccount).getEmojiAnimatedSticker(item.chatTheme.getEmoticon());
+        } else if (item.chatTheme.gift != null) {
+            document = item.chatTheme.gift.getDocument();
         }
         if (itemChanged) {
             if (animationCancelRunnable != null) {
@@ -212,7 +222,7 @@ public class ThemeSmallPreviewView extends FrameLayout implements NotificationCe
             if (document != null) {
                 thumb = DocumentObject.getSvgThumb(document, Theme.key_emptyListPlaceholder, 0.2f);
             }
-            if (thumb == null) {
+            if (thumb == null && item.chatTheme.getEmoticon() != null) {
                 Emoji.preloadEmoji(item.chatTheme.getEmoticon());
                 thumb = Emoji.getEmojiDrawable(item.chatTheme.getEmoticon());
             }
@@ -249,9 +259,26 @@ public class ThemeSmallPreviewView extends FrameLayout implements NotificationCe
                 changeThemeProgress = 1f;
             }
             updatePreviewBackground(themeDrawable);
-            TLRPC.TL_theme theme = item.chatTheme.getTlTheme(lastThemeIndex);
-            if (theme != null) {
-                final long themeId = theme.id;
+            TLRPC.TL_theme tlTheme = item.chatTheme.getTlTheme(lastThemeIndex);
+            TLRPC.TL_chatThemeUniqueGift giftTheme = item.chatTheme.getGiftTheme(lastThemeIndex);
+            if (tlTheme != null) {
+                final long themeId = tlTheme.id;
+                TLRPC.WallPaper wallPaper = item.chatTheme.getWallpaper(lastThemeIndex);
+                if (wallPaper != null) {
+                    final int intensity = wallPaper.settings.intensity;
+                    item.chatTheme.loadWallpaperThumb(lastThemeIndex, result -> {
+                        if (result != null && result.first == themeId) {
+                            if (item.previewDrawable instanceof MotionBackgroundDrawable) {
+                                MotionBackgroundDrawable motionBackgroundDrawable = (MotionBackgroundDrawable) item.previewDrawable;
+                                motionBackgroundDrawable.setPatternBitmap(intensity >= 0 ? 100 : -100, prescaleBitmap(result.second), true);
+                                motionBackgroundDrawable.setPatternColorFilter(patternColor);
+                            }
+                            invalidate();
+                        }
+                    });
+                }
+            } else if (giftTheme != null) {
+                final long themeId = giftTheme.gift.id;
                 TLRPC.WallPaper wallPaper = item.chatTheme.getWallpaper(lastThemeIndex);
                 if (wallPaper != null) {
                     final int intensity = wallPaper.settings.intensity;
@@ -319,6 +346,16 @@ public class ThemeSmallPreviewView extends FrameLayout implements NotificationCe
                     });
                 }
             }
+            if (chatThemeItem.chatTheme.gift != null && chatThemeItem.chatTheme.gift.theme_peer != null) {
+                TLRPC.User user = MessagesController.getInstance(currentAccount).getUser(chatThemeItem.chatTheme.gift.theme_peer.user_id);
+                themeAvatarDrawable = new AvatarDrawable();
+                themeAvatarDrawable.setInfo(user);
+                avatarImageView.setImage(ImageLocation.getForUserOrChat(user, ImageLocation.TYPE_SMALL), "50_50", themeAvatarDrawable, user);
+                avatarImageView.setVisibility(View.VISIBLE);
+            } else {
+                themeAvatarDrawable = null;
+                avatarImageView.setVisibility(View.GONE);
+            }
         }
 
         if (!animated) {
@@ -335,7 +372,7 @@ public class ThemeSmallPreviewView extends FrameLayout implements NotificationCe
         if (chatThemeItem.chatTheme == null || chatThemeItem.chatTheme.isAnyStub()) {
             setContentDescription(LocaleController.getString(R.string.ChatNoTheme));
         } else {
-            setContentDescription(chatThemeItem.chatTheme.getEmoticon());
+            setContentDescription(chatThemeItem.chatTheme.getKey());
         }
     }
 
@@ -404,7 +441,7 @@ public class ThemeSmallPreviewView extends FrameLayout implements NotificationCe
         if (messageColors.size() > 1) {
             int[] colors = new int[messageColors.size()];
             for (int i = 0; i != messageColors.size(); ++i) {
-                colors[i] = messageColors.get(i);
+                colors[i] = messageColors.get(i) | 0xFF000000;
             }
             float top = INNER_RECT_SPACE + AndroidUtilities.dp(8);
             paint.setShader(new LinearGradient(0f, top, 0f, top + BUBBLE_HEIGHT, colors, null, Shader.TileMode.CLAMP));
@@ -432,6 +469,7 @@ public class ThemeSmallPreviewView extends FrameLayout implements NotificationCe
 
 
         TLRPC.TL_theme tlTheme = chatThemeItem.chatTheme.getTlTheme(chatThemeItem.themeIndex);
+        TLRPC.TL_chatThemeUniqueGift giftTheme = chatThemeItem.chatTheme.getGiftTheme(chatThemeItem.themeIndex);
 
         if (tlTheme != null) {
             int index = chatThemeItem.chatTheme.getSettingsIndex(chatThemeItem.themeIndex);
@@ -440,6 +478,13 @@ public class ThemeSmallPreviewView extends FrameLayout implements NotificationCe
 
             themeDrawable.outBubblePaintSecond.setAlpha(255);
             getPreviewDrawable(tlTheme, index);
+        } else if (giftTheme != null) {
+            int index = chatThemeItem.chatTheme.getSettingsIndex(chatThemeItem.themeIndex);
+            TLRPC.ThemeSettings themeSettings = giftTheme.theme_settings.get(index);
+            fillOutBubblePaint(themeDrawable.outBubblePaintSecond, themeSettings.message_colors);
+
+            themeDrawable.outBubblePaintSecond.setAlpha(255);
+            getPreviewDrawable(giftTheme, index);
         } else {
             EmojiThemes.ThemeItem item = chatThemeItem.chatTheme.getThemeItem(chatThemeItem.themeIndex);
             getPreviewDrawable(item);
@@ -461,6 +506,38 @@ public class ThemeSmallPreviewView extends FrameLayout implements NotificationCe
         Drawable drawable;
         if (settingsIndex >= 0) {
             TLRPC.ThemeSettings themeSettings = theme.settings.get(settingsIndex);
+            TLRPC.WallPaperSettings wallPaperSettings = themeSettings.wallpaper.settings;
+            color1 = wallPaperSettings.background_color;
+            color2 = wallPaperSettings.second_background_color;
+            color3 = wallPaperSettings.third_background_color;
+            color4 = wallPaperSettings.fourth_background_color;
+        }
+        if (color2 != 0) {
+            MotionBackgroundDrawable motionBackgroundDrawable = new MotionBackgroundDrawable(color1, color2, color3, color4, true);
+            patternColor = motionBackgroundDrawable.getPatternColor();
+            drawable = motionBackgroundDrawable;
+        } else {
+            drawable = new MotionBackgroundDrawable(color1, color1, color1, color1, true);
+            patternColor = Color.BLACK;
+        }
+        chatThemeItem.previewDrawable = drawable;
+
+        return drawable;
+    }
+
+    private Drawable getPreviewDrawable(TLRPC.TL_chatThemeUniqueGift theme, int settingsIndex) {
+        if (chatThemeItem == null) {
+            return null;
+        }
+
+        int color1 = 0;
+        int color2 = 0;
+        int color3 = 0;
+        int color4 = 0;
+
+        Drawable drawable;
+        if (settingsIndex >= 0) {
+            TLRPC.ThemeSettings themeSettings = theme.theme_settings.get(settingsIndex);
             TLRPC.WallPaperSettings wallPaperSettings = themeSettings.wallpaper.settings;
             color1 = wallPaperSettings.background_color;
             color2 = wallPaperSettings.second_background_color;
@@ -704,6 +781,8 @@ public class ThemeSmallPreviewView extends FrameLayout implements NotificationCe
                         messageDrawableIn.setRoundRadius((int) (rectF.height() * 0.5f));
                         messageDrawableIn.draw(canvas, inBubblePaint);
                     }
+                    avatarImageView.setTranslationX(rectF.left + AndroidUtilities.dp(2));
+                    avatarImageView.setTranslationY(rectF.top + (rectF.bottom - rectF.top - avatarImageView.getHeight()) / 2f);
                 }
             }
         }

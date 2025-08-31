@@ -31,14 +31,18 @@ public class ChatThemeController extends BaseController {
     private final HashMap<Long, Bitmap> themeIdWallpaperThumbMap = new HashMap<>();
     private List<EmojiThemes> allChatThemes;
     private volatile long themesHash;
+    private volatile long uniqueGiftChatThemesHash;
     private volatile long lastReloadTimeMs;
+    private volatile long uniqueGiftChatThemesLastReloadMs;
+    private List<EmojiThemes> allUniqueGiftChatThemes;
 
     private ChatThemeController(int num) {
         super(num);
-        init();
+        initEmojiThemes();
+        initUniqueGiftChatThemes();
     }
 
-    private void init() {
+    private void initEmojiThemes() {
         SharedPreferences preferences = getSharedPreferences();
         themesHash = 0;
         lastReloadTimeMs = 0;
@@ -54,9 +58,23 @@ public class ChatThemeController extends BaseController {
         preloadSticker("❌");
         if (!allChatThemes.isEmpty()) {
             for (EmojiThemes chatTheme : allChatThemes) {
-               preloadSticker(chatTheme.getEmoticon());
+                preloadSticker(chatTheme.getEmoticon());
             }
         }
+    }
+
+    private void initUniqueGiftChatThemes() {
+        SharedPreferences preferences = getGiftThemesSharedPreferences();
+        uniqueGiftChatThemesHash = 0;
+        uniqueGiftChatThemesLastReloadMs = 0;
+        try {
+            uniqueGiftChatThemesHash = preferences.getLong("uniqueGiftChatThemesHash", 0);
+            uniqueGiftChatThemesLastReloadMs = preferences.getLong("uniqueGiftChatThemesLastReloadMs", 0);
+        } catch (Exception e) {
+            FileLog.e(e);
+        }
+
+        allUniqueGiftChatThemes = getAllUniqueGiftChatThemesFromPrefs();
     }
 
     private void preloadSticker(String emojicon) {
@@ -68,7 +86,7 @@ public class ChatThemeController extends BaseController {
 
     public void requestAllChatThemes(final ResultCallback<List<EmojiThemes>> callback, boolean withDefault) {
         if (themesHash == 0 || lastReloadTimeMs == 0) {
-            init();
+            initEmojiThemes();
         }
 
         boolean needReload = System.currentTimeMillis() - lastReloadTimeMs > reloadTimeoutMs;
@@ -101,11 +119,7 @@ public class ChatThemeController extends BaseController {
                     }
                     editor.apply();
                 } else if (response instanceof TL_account.TL_themesNotModified) {
-                   // if (allChatThemes == null || allChatThemes.isEmpty()) {
-                        chatThemes = getAllChatThemesFromPrefs();
-//                    } else {
-//                   //     return;
-//                    }
+                    chatThemes = getAllChatThemesFromPrefs();
                 } else {
                     chatThemes = null;
                     isError = true;
@@ -137,12 +151,106 @@ public class ChatThemeController extends BaseController {
         }
     }
 
+    public void requestAllUniqueGiftChatThemes(final ResultCallback<List<EmojiThemes>> callback, boolean withDefault) {
+        if (uniqueGiftChatThemesHash == 0 || uniqueGiftChatThemesLastReloadMs == 0) {
+            initUniqueGiftChatThemes();
+        }
+
+        boolean needReload = System.currentTimeMillis() - uniqueGiftChatThemesLastReloadMs > reloadTimeoutMs;
+        if (allUniqueGiftChatThemes == null || allUniqueGiftChatThemes.isEmpty() || needReload) {
+            TL_account.Tl_getUniqueGiftChatThemes request = new TL_account.Tl_getUniqueGiftChatThemes();
+            request.hash = uniqueGiftChatThemesHash;
+            // TODO pagination
+            request.limit = 100;
+            request.offset = 0;
+            ConnectionsManager.getInstance(UserConfig.selectedAccount).sendRequest(request, (response, error) -> chatThemeQueue.postRunnable(() -> {
+                boolean isError = false;
+                final List<EmojiThemes> chatThemes;
+                if (response instanceof TL_account.Tl_chatThemes) {
+                    TL_account.Tl_chatThemes resp = (TL_account.Tl_chatThemes) response;
+                    uniqueGiftChatThemesHash = resp.hash;
+                    uniqueGiftChatThemesLastReloadMs = System.currentTimeMillis();
+
+                    SharedPreferences.Editor editor = getGiftThemesSharedPreferences().edit();
+                    editor.clear();
+                    editor.putLong("uniqueGiftChatThemesHash", uniqueGiftChatThemesHash);
+                    editor.putLong("uniqueGiftChatThemesLastReloadMs", uniqueGiftChatThemesLastReloadMs);
+                    editor.putInt("uniqueGiftChatThemesCount", resp.themes.size());
+                    chatThemes = new ArrayList<>();
+                    for (int i = 0; i < resp.themes.size(); ++i) {
+                        if (resp.themes.get(i) instanceof TLRPC.TL_chatThemeUniqueGift) {
+                            TLRPC.TL_chatThemeUniqueGift giftChatTheme = (TLRPC.TL_chatThemeUniqueGift) resp.themes.get(i);
+                            SerializedData data = new SerializedData(giftChatTheme.getObjectSize());
+                            giftChatTheme.serializeToStream(data);
+                            editor.putString("uniqueGiftChatTheme_" + i, Utilities.bytesToHex(data.toByteArray()));
+                            EmojiThemes chatTheme = new EmojiThemes(currentAccount, giftChatTheme, false);
+                            chatTheme.preloadWallpaper();
+                            chatThemes.add(chatTheme);
+                        }
+                    }
+                    editor.apply();
+                } else if (response instanceof TL_account.TL_chatThemesNotModified) {
+                    chatThemes = getAllUniqueGiftChatThemesFromPrefs();
+                } else {
+                    chatThemes = null;
+                    isError = true;
+                    AndroidUtilities.runOnUIThread(() -> callback.onError(error));
+                }
+                if (!isError) {
+                    if (withDefault && !chatThemes.get(0).showAsDefaultStub) {
+                        chatThemes.add(0, EmojiThemes.createChatThemesDefault(currentAccount));
+                    }
+                    for (EmojiThemes theme : chatThemes) {
+                        theme.initColors();
+                    }
+                    AndroidUtilities.runOnUIThread(() -> {
+                        allUniqueGiftChatThemes = new ArrayList<>(chatThemes);
+                        callback.onComplete(chatThemes);
+                    });
+                }
+            }));
+        }
+        if (allUniqueGiftChatThemes != null && !allUniqueGiftChatThemes.isEmpty()) {
+            List<EmojiThemes> chatThemes = new ArrayList<>(allUniqueGiftChatThemes);
+            if (withDefault && !chatThemes.get(0).showAsDefaultStub) {
+                chatThemes.add(0, EmojiThemes.createChatThemesDefault(currentAccount));
+            }
+            for (EmojiThemes theme : chatThemes) {
+                theme.initColors();
+            }
+            callback.onComplete(chatThemes);
+        }
+    }
+
     private SharedPreferences getSharedPreferences() {
         return ApplicationLoader.applicationContext.getSharedPreferences("chatthemeconfig_" + currentAccount, Context.MODE_PRIVATE);
     }
 
+    private SharedPreferences getGiftThemesSharedPreferences() {
+        return ApplicationLoader.applicationContext.getSharedPreferences("uniquegiftchatthemeconfig_" + currentAccount, Context.MODE_PRIVATE);
+    }
+
     private SharedPreferences getEmojiSharedPreferences() {
         return ApplicationLoader.applicationContext.getSharedPreferences("chatthemeconfig_emoji", Context.MODE_PRIVATE);
+    }
+
+    private List<EmojiThemes> getAllUniqueGiftChatThemesFromPrefs() {
+        SharedPreferences preferences = getGiftThemesSharedPreferences();
+        int count = preferences.getInt("uniqueGiftChatThemesCount", 0);
+        List<EmojiThemes> themes = new ArrayList<>(count);
+        for (int i = 0; i < count; ++i) {
+            String value = preferences.getString("uniqueGiftChatTheme_" + i, "");
+            SerializedData serializedData = new SerializedData(Utilities.hexToBytes(value));
+            try {
+                TLRPC.TL_chatThemeUniqueGift chatTheme = (TLRPC.TL_chatThemeUniqueGift) TLRPC.TL_chatThemeUniqueGift.TLdeserialize(serializedData, serializedData.readInt32(true), true);
+                if (chatTheme != null) {
+                    themes.add(new EmojiThemes(currentAccount, chatTheme, false));
+                }
+            } catch (Throwable e) {
+                FileLog.e(e);
+            }
+        }
+        return themes;
     }
 
     private List<EmojiThemes> getAllChatThemesFromPrefs() {
@@ -164,8 +272,8 @@ public class ChatThemeController extends BaseController {
         return themes;
     }
 
-    public void requestChatTheme(final String emoticon, final ResultCallback<EmojiThemes> callback) {
-        if (TextUtils.isEmpty(emoticon)) {
+    public void requestChatTheme(final String themeKey, final ResultCallback<EmojiThemes> callback) {
+        if (TextUtils.isEmpty(themeKey)) {
             callback.onComplete(null);
             return;
         }
@@ -173,11 +281,39 @@ public class ChatThemeController extends BaseController {
             @Override
             public void onComplete(List<EmojiThemes> result) {
                 for (EmojiThemes theme : result) {
-                    if (emoticon.equals(theme.getEmoticon())) {
+                    if (themeKey.equals(theme.getKey())) {
                         theme.initColors();
                         callback.onComplete(theme);
                         break;
                     }
+                }
+            }
+            @Override
+            public void onError(TLRPC.TL_error error) {
+                callback.onComplete(null);
+            }
+        }, false);
+    }
+
+    public void requestUniqueGiftChatTheme(final String themeKey, final ResultCallback<EmojiThemes> callback) {
+        if (TextUtils.isEmpty(themeKey)) {
+            callback.onComplete(null);
+            return;
+        }
+        requestAllUniqueGiftChatThemes(new ResultCallback<List<EmojiThemes>>() {
+            @Override
+            public void onComplete(List<EmojiThemes> result) {
+                boolean wasFound = false;
+                for (EmojiThemes theme : result) {
+                    if (themeKey.equals(theme.getKey())) {
+                        theme.initColors();
+                        wasFound = true;
+                        callback.onComplete(theme);
+                        break;
+                    }
+                }
+                if (!wasFound) {
+                    callback.onComplete(null);
                 }
             }
             @Override
@@ -220,39 +356,60 @@ public class ChatThemeController extends BaseController {
         return false;
     }
 
-    public void setDialogTheme(long dialogId, String emoticon, boolean sendRequest) {
+    public void setDialogTheme(long dialogId, TLRPC.ChatTheme chatTheme, boolean sendRequest) {
         String oldEmoticon = dialogEmoticonsMap.get(dialogId);
-        if (TextUtils.equals(oldEmoticon, emoticon)) {
+        String iconText;
+        if (chatTheme instanceof TLRPC.TL_chatTheme) {
+            iconText = ((TLRPC.TL_chatTheme) chatTheme).emoticon;
+        } else if (chatTheme instanceof TLRPC.TL_chatThemeUniqueGift) {
+            iconText = ((TLRPC.TL_chatThemeUniqueGift) chatTheme).gift.slug;
+        } else {
+            iconText = null;
+        }
+
+        if (TextUtils.equals(oldEmoticon, iconText)) {
             return;
         }
 
-        if (emoticon == null) {
+        if (iconText == null) {
             dialogEmoticonsMap.delete(dialogId);
         } else {
-            dialogEmoticonsMap.put(dialogId, emoticon);
+            dialogEmoticonsMap.put(dialogId, iconText);
         }
 
         if (dialogId >= 0) {
             TLRPC.UserFull userFull = getMessagesController().getUserFull(dialogId);
             if (userFull != null) {
-                userFull.theme_emoticon = emoticon;
+                userFull.theme = chatTheme;
                 getMessagesStorage().updateUserInfo(userFull, true);
             }
         } else {
             TLRPC.ChatFull chatFull = getMessagesController().getChatFull(-dialogId);
-            if (chatFull != null) {
-                chatFull.theme_emoticon = emoticon;
+            if (chatFull != null && chatTheme instanceof TLRPC.TL_chatTheme) {
+                chatFull.theme_emoticon = ((TLRPC.TL_chatTheme) chatTheme).emoticon;
                 getMessagesStorage().updateChatInfo(chatFull, true);
             }
         }
 
         getEmojiSharedPreferences().edit()
-                .putString("chatTheme_" + currentAccount + "_" + dialogId, emoticon)
+                .putString("chatTheme_" + currentAccount + "_" + dialogId, iconText)
                 .apply();
 
         if (sendRequest) {
             TLRPC.TL_messages_setChatTheme request = new TLRPC.TL_messages_setChatTheme();
-            request.emoticon = emoticon != null ? emoticon : "";
+            if (chatTheme instanceof TLRPC.TL_chatThemeUniqueGift) {
+                TLRPC.Tl_inputChatThemeUniqueGift input = new TLRPC.Tl_inputChatThemeUniqueGift();
+                input.slug = ((TLRPC.TL_chatThemeUniqueGift) chatTheme).gift.slug;
+                request.theme = input;
+            } else if (chatTheme instanceof TLRPC.TL_chatTheme) {
+                TLRPC.Tl_inputChatTheme input = new TLRPC.Tl_inputChatTheme();
+                input.emoticon = ((TLRPC.TL_chatTheme) chatTheme).emoticon;
+                request.theme = input;
+            } else {
+                TLRPC.Tl_inputChatTheme input = new TLRPC.Tl_inputChatTheme();
+                input.emoticon = "";
+                request.theme = input;
+            }
             request.peer = getMessagesController().getInputPeer(dialogId);
             getConnectionsManager().sendRequest(request, null);
         }
@@ -267,10 +424,15 @@ public class ChatThemeController extends BaseController {
         return getTheme(emoticon);
     }
 
-    public EmojiThemes getTheme(String emoticon) {
-        if (emoticon != null) {
+    public EmojiThemes getTheme(String key) {
+        if (key != null) {
             for (EmojiThemes theme : allChatThemes) {
-                if (emoticon.equals(theme.getEmoticon())) {
+                if (key.equals(theme.getKey())) {
+                    return theme;
+                }
+            }
+            for (EmojiThemes theme : allUniqueGiftChatThemes) {
+                if (key.equals(theme.getKey())) {
                     return theme;
                 }
             }
@@ -409,7 +571,16 @@ public class ChatThemeController extends BaseController {
     public void clearCache() {
         themesHash = 0;
         lastReloadTimeMs = 0;
+        uniqueGiftChatThemesHash = 0;
+        uniqueGiftChatThemesLastReloadMs = 0;
         getSharedPreferences().edit().clear().apply();
+        getGiftThemesSharedPreferences().edit().clear().apply();
+    }
+
+    public void clearUniqueGiftChatThemesCache() {
+        uniqueGiftChatThemesHash = 0;
+        uniqueGiftChatThemesLastReloadMs = 0;
+        getGiftThemesSharedPreferences().edit().clear().apply();
     }
 
     public void processUpdate(TLRPC.TL_updatePeerWallpaper update) {

@@ -1394,6 +1394,7 @@ public class Theme {
         public boolean patternMotion;
 
         public TLRPC.TL_theme info;
+        public TLRPC.TL_chatThemeUniqueGift infoGift;
         public TLRPC.TL_wallPaper pattern;
         public int account;
 
@@ -2813,6 +2814,44 @@ public class Theme {
                 themeAccents.add(0, themeAccent);
                 sortAccents(this);
                 accentsByThemeId.put(info.id, themeAccent);
+                return themeAccent;
+            }
+        }
+
+        public ThemeAccent createNewAccent(TLRPC.TL_chatThemeUniqueGift info, int account, boolean ignoreThemeInfoId, int settingsIndex) {
+            if (info == null) {
+                return null;
+            }
+            TLRPC.ThemeSettings settings = null;
+            if (settingsIndex < info.theme_settings.size()) {
+                settings = info.theme_settings.get(settingsIndex);
+            }
+            if (ignoreThemeInfoId) {
+                ThemeAccent themeAccent = chatAccentsByThemeId.get(info.gift.id);
+                if (themeAccent != null) {
+                    return themeAccent;
+                }
+                int id = ++lastChatThemeId;
+                themeAccent = createNewAccent(settings);
+                themeAccent.id = id;
+                themeAccent.infoGift = info;
+                themeAccent.account = account;
+                chatAccentsByThemeId.put(id, themeAccent);
+                return themeAccent;
+            } else {
+                ThemeAccent themeAccent = accentsByThemeId.get(info.gift.id);
+                if (themeAccent != null) {
+                    return themeAccent;
+                }
+                int id = ++lastAccentId;
+                themeAccent = createNewAccent(settings);
+                themeAccent.id = id;
+                themeAccent.infoGift = info;
+                themeAccent.account = account;
+                themeAccentsMap.put(id, themeAccent);
+                themeAccents.add(0, themeAccent);
+                sortAccents(this);
+                accentsByThemeId.put(info.gift.id, themeAccent);
                 return themeAccent;
             }
         }

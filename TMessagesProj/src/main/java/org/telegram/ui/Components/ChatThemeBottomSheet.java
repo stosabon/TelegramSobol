@@ -22,6 +22,7 @@ import android.graphics.drawable.Drawable;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.text.SpannableString;
 import android.text.SpannableStringBuilder;
 import android.text.Spanned;
 import android.text.TextUtils;
@@ -45,12 +46,15 @@ import androidx.recyclerview.widget.RecyclerView;
 import org.telegram.messenger.AndroidUtilities;
 import org.telegram.messenger.ApplicationLoader;
 import org.telegram.messenger.ChatThemeController;
+import org.telegram.messenger.DocumentObject;
 import org.telegram.messenger.FileLoader;
 import org.telegram.messenger.FileLog;
 import org.telegram.messenger.ImageLoader;
+import org.telegram.messenger.ImageLocation;
 import org.telegram.messenger.LocaleController;
 import org.telegram.messenger.MediaController;
 import org.telegram.messenger.MediaDataController;
+import org.telegram.messenger.MessagesController;
 import org.telegram.messenger.NotificationCenter;
 import org.telegram.messenger.R;
 import org.telegram.messenger.SharedConfig;
@@ -86,6 +90,8 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Objects;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class ChatThemeBottomSheet extends BottomSheet implements NotificationCenter.NotificationCenterDelegate {
 
@@ -265,7 +271,7 @@ public class ChatThemeBottomSheet extends BottomSheet implements NotificationCen
 
         applyButton = new View(getContext());
         applyButton.setBackground(Theme.createSimpleSelectorRoundRectDrawable(dp(6), getThemedColor(Theme.key_featuredStickers_addButton), getThemedColor(Theme.key_featuredStickers_addButtonPressed)));
-        applyButton.setOnClickListener((view) -> applySelectedTheme());
+        applyButton.setOnClickListener((view) -> applySelectedTheme(false));
         rootLayout.addView(applyButton, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, 48, Gravity.START, 16, 162, 16, 16));
 
         chooseBackgroundTextView = new TextView(getContext());
@@ -492,17 +498,32 @@ public class ChatThemeBottomSheet extends BottomSheet implements NotificationCen
         NotificationCenter.getGlobalInstance().addObserver(this, NotificationCenter.emojiLoaded);
 
         isApplyClicked = false;
-        List<EmojiThemes> cachedThemes = themeDelegate.getCachedThemes();
-        if (cachedThemes == null || cachedThemes.isEmpty()) {
+
+        final List<EmojiThemes> emojiThemes = new ArrayList<>();
+        final List<EmojiThemes> giftThemes = new ArrayList<>();
+        final List<EmojiThemes> allThemes = new ArrayList<>();
+        final AtomicBoolean emojiThemesLoaded = new AtomicBoolean(false);
+        final AtomicBoolean giftThemesLoaded = new AtomicBoolean(false);
+
+        List<EmojiThemes> cachedEmojiThemes = themeDelegate.getCachedThemes();
+        if (cachedEmojiThemes == null || cachedEmojiThemes.isEmpty()) {
             chatThemeController.requestAllChatThemes(new ResultCallback<List<EmojiThemes>>() {
                 @Override
                 public void onComplete(List<EmojiThemes> result) {
                     if (result != null && !result.isEmpty()) {
-                        themeDelegate.setCachedThemes(result);
+                        emojiThemes.clear();
+                        emojiThemes.addAll(result);
                     }
-                    NotificationCenter.getInstance(currentAccount).doOnIdle(() -> {
-                        onDataLoaded(result);
-                    });
+                    emojiThemesLoaded.set(true);
+                    if (giftThemesLoaded.get()) {
+                        allThemes.clear();
+                        allThemes.addAll(emojiThemes);
+                        allThemes.addAll(giftThemes);
+                        themeDelegate.setCachedThemes(allThemes);
+                        NotificationCenter.getInstance(currentAccount).doOnIdle(() -> {
+                            onDataLoaded(allThemes);
+                        });
+                    }
                 }
 
                 @Override
@@ -510,8 +531,32 @@ public class ChatThemeBottomSheet extends BottomSheet implements NotificationCen
                     Toast.makeText(getContext(), error.text, Toast.LENGTH_SHORT).show();
                 }
             }, true);
+            chatThemeController.requestAllUniqueGiftChatThemes(new ResultCallback<List<EmojiThemes>>() {
+                @Override
+                public void onComplete(List<EmojiThemes> result) {
+                    if (result != null && !result.isEmpty()) {
+                        giftThemes.clear();
+                        giftThemes.addAll(result);
+                    }
+                    giftThemesLoaded.set(true);
+                    if (emojiThemesLoaded.get()) {
+                        allThemes.clear();
+                        allThemes.addAll(emojiThemes);
+                        allThemes.addAll(giftThemes);
+                        themeDelegate.setCachedThemes(allThemes);
+                        NotificationCenter.getInstance(currentAccount).doOnIdle(() -> {
+                            onDataLoaded(allThemes);
+                        });
+                    }
+                }
+
+                @Override
+                public void onError(TLRPC.TL_error error) {
+                    Toast.makeText(getContext(), error.text, Toast.LENGTH_SHORT).show();
+                }
+            }, false);
         } else {
-            onDataLoaded(cachedThemes);
+            onDataLoaded(cachedEmojiThemes);
         }
 
 
@@ -584,7 +629,7 @@ public class ChatThemeBottomSheet extends BottomSheet implements NotificationCen
             AlertDialog.Builder builder = new AlertDialog.Builder(getContext(), resourcesProvider);
             builder.setTitle(LocaleController.getString(R.string.ChatThemeSaveDialogTitle));
             builder.setSubtitle(LocaleController.getString(R.string.ChatThemeSaveDialogText));
-            builder.setPositiveButton(LocaleController.getString(R.string.ChatThemeSaveDialogApply), (dialogInterface, i) -> applySelectedTheme());
+            builder.setPositiveButton(LocaleController.getString(R.string.ChatThemeSaveDialogApply), (dialogInterface, i) -> applySelectedTheme(false));
             builder.setNegativeButton(LocaleController.getString(R.string.ChatThemeSaveDialogDiscard), (dialogInterface, i) -> dismiss());
             builder.show();
         } else {
@@ -799,24 +844,6 @@ public class ChatThemeBottomSheet extends BottomSheet implements NotificationCen
         items.add(0, noThemeItem);
         selectedItem = noThemeItem;
 
-//        if (chatActivity.getCurrentUserInfo() != null && chatActivity.getCurrentUserInfo().wallpaper != null) {
-//            EmojiThemes wallpaperItem = EmojiThemes.createChatThemesDefault();
-//            wallpaperItem.wallpaper = chatActivity.getCurrentUserInfo().wallpaper;
-//            wallpaperItem.showAsDefaultStub = true;
-//            wallpaperItem.emoji = "\uD83C\uDFA8";
-//
-//            for (int i = 0; i < wallpaperItem.items.size(); i++) {
-//                EmojiThemes.ThemeItem item = wallpaperItem.items.get(i);
-//                item.inBubbleColor = Color.WHITE;//Theme.getDefaultColor(Theme.key_chat_inBubble);
-//                item.outBubbleColor = Color.GRAY;//Theme.getDefaultColor(Theme.key_chat_outBubble);
-//                item.outLineColor = Color.BLACK;
-//            }
-//            if (currentTheme == null || currentTheme.showAsDefaultStub) {
-//                currentTheme = wallpaperItem;
-//            }
-//            items.add(new ChatThemeItem(wallpaperItem));
-//        }
-
         for (int i = 1; i < result.size(); ++i) {
             EmojiThemes chatTheme = result.get(i);
             ChatThemeItem item = new ChatThemeItem(chatTheme);
@@ -840,7 +867,7 @@ public class ChatThemeBottomSheet extends BottomSheet implements NotificationCen
         if (currentTheme != null) {
             int selectedPosition = -1;
             for (int i = 0; i != items.size(); ++i) {
-                if (items.get(i).chatTheme.getEmoticon().equals(currentTheme.getEmoticon())) {
+                if (items.get(i).chatTheme.getKey().equals(currentTheme.getKey())) {
                     selectedItem = items.get(i);
                     selectedPosition = i;
                     break;
@@ -919,7 +946,7 @@ public class ChatThemeBottomSheet extends BottomSheet implements NotificationCen
         }
     }
 
-    private void applySelectedTheme() {
+    private void applySelectedTheme(boolean force) {
         if (checkingBoostsLevel) {
             return;
         }
@@ -943,10 +970,52 @@ public class ChatThemeBottomSheet extends BottomSheet implements NotificationCen
         Bulletin bulletin = null;
         EmojiThemes newTheme = selectedItem.chatTheme;
         if (selectedItem != null && newTheme != currentTheme) {
+            TLRPC.User user = chatActivity.getCurrentUser();
+            if (!force && newTheme.gift != null && newTheme.gift.theme_peer != null && user != null && user.id != newTheme.gift.theme_peer.user_id) {
+                TLRPC.User userWithTheme = MessagesController.getInstance(currentAccount).getUser(newTheme.gift.theme_peer.user_id);
+
+                FrameLayout topViewLayout = new FrameLayout(getContext());
+
+                BackupImageView avatarImageView = new BackupImageView(getContext());
+                avatarImageView.setRoundRadius(dp(26));
+                avatarImageView.setForUserOrChat(userWithTheme, new AvatarDrawable(userWithTheme));
+                topViewLayout.addView(avatarImageView, LayoutHelper.createFrame(52, 52, Gravity.CENTER, 48, 0, 0, 0));
+
+                ImageView undoImageView = new ImageView(getContext());
+                undoImageView.setImageResource(R.drawable.chats_undo);
+                undoImageView.setColorFilter(new PorterDuffColorFilter(getThemedColor(Theme.key_undo_cancelColor), PorterDuff.Mode.MULTIPLY));
+                topViewLayout.addView(undoImageView, LayoutHelper.createFrame(24, 24, Gravity.CENTER, 0, 0, 0, 0));
+
+                BackupImageView giftImageView = new BackupImageView(getContext());
+                TLRPC.Document document = newTheme.gift.getDocument();
+                Drawable thumb = null;
+                if (document != null) {
+                    thumb = DocumentObject.getSvgThumb(document, Theme.key_emptyListPlaceholder, 0.2f);
+                }
+                giftImageView.setImage(ImageLocation.getForDocument(document), "50_50", thumb, null);
+                topViewLayout.addView(giftImageView, LayoutHelper.createFrame(52, 52, Gravity.CENTER, 0, 0, 48, 0));
+
+                SpannableString usernameString = new SpannableString(UserObject.getUserName(user));
+                usernameString.setSpan(new TypefaceSpan(AndroidUtilities.bold()), 0, UserObject.getUserName(user).length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+                AlertDialog.Builder builder = new AlertDialog.Builder(getContext(), resourcesProvider);
+                builder.setTopView(topViewLayout);
+                builder.setMessage(AndroidUtilities.replaceCharSequence("%s", "This gift is already in your chat with %s. Remove it there and use it here instead?", usernameString));
+                builder.setPositiveButton("Yes", (dialogInterface, i) -> applySelectedTheme(true));
+                builder.setNegativeButton(LocaleController.getString(R.string.Cancel), null);
+                AlertDialog alertDialog = builder.create();
+                alertDialog.show();
+                return;
+            }
             EmojiThemes chatTheme = selectedItem.chatTheme;
-            String emoticon = !chatTheme.showAsDefaultStub ? chatTheme.getEmoticon() : null;
+            String key = !chatTheme.showAsDefaultStub ? chatTheme.getKey() : null;
             ChatThemeController.getInstance(currentAccount).clearWallpaper(chatActivity.getDialogId(), false);
-            ChatThemeController.getInstance(currentAccount).setDialogTheme(chatActivity.getDialogId(), emoticon, true);
+            ChatThemeController.getInstance(currentAccount).setDialogTheme(chatActivity.getDialogId(), chatTheme.getChatTheme(), true);
+            // Clear cache to get up to date theme_peer
+            if ((currentTheme != null && currentTheme.gift != null) || newTheme.gift != null) {
+                ChatThemeController.getInstance(currentAccount).clearUniqueGiftChatThemesCache();
+                themeDelegate.setCachedThemes(null);
+            }
+
             TLRPC.WallPaper wallpaper = hasChanges() ? null : themeDelegate.getCurrentWallpaper();
             if (!chatTheme.showAsDefaultStub) {
                 themeDelegate.setCurrentTheme(chatTheme, wallpaper, true, originalIsDark);
@@ -955,14 +1024,9 @@ public class ChatThemeBottomSheet extends BottomSheet implements NotificationCen
             }
             isApplyClicked = true;
 
-            TLRPC.User user = chatActivity.getCurrentUser();
             if (user != null && !user.self) {
-                boolean themeDisabled = false;
-                if (TextUtils.isEmpty(emoticon)) {
-                    themeDisabled = true;
-                    emoticon = "❌";
-                }
-                TLRPC.Document document = emoticon != null ? MediaDataController.getInstance(currentAccount).getEmojiAnimatedSticker(emoticon) : null;
+                boolean themeDisabled = TextUtils.isEmpty(key);
+                TLRPC.Document document = chatTheme.getEmoticon() != null ? MediaDataController.getInstance(currentAccount).getEmojiAnimatedSticker(chatTheme.getEmoticon() == null ? "❌" : chatTheme.getEmoticon()) : null;
                 StickerSetBulletinLayout layout = new StickerSetBulletinLayout(getContext(), null, StickerSetBulletinLayout.TYPE_EMPTY, document, chatActivity.getResourceProvider());
                 layout.subtitleTextView.setVisibility(View.GONE);
                 if (themeDisabled) {
@@ -984,15 +1048,15 @@ public class ChatThemeBottomSheet extends BottomSheet implements NotificationCen
         if (selectedItem == null) {
             return false;
         } else {
-            String oldEmoticon = currentTheme != null ? currentTheme.getEmoticon() : null;
-            if (TextUtils.isEmpty(oldEmoticon)) {
-                oldEmoticon = "❌";
+            String oldKey = currentTheme != null ? currentTheme.getKey() : null;
+            if (TextUtils.isEmpty(oldKey)) {
+                oldKey = "❌";
             }
-            String newEmoticon = selectedItem.chatTheme != null ? selectedItem.chatTheme.getEmoticon() : null;
-            if (TextUtils.isEmpty(newEmoticon)) {
-                newEmoticon = "❌";
+            String newKey = selectedItem.chatTheme != null ? selectedItem.chatTheme.getKey() : null;
+            if (TextUtils.isEmpty(newKey)) {
+                newKey = "❌";
             }
-            return !Objects.equals(oldEmoticon, newEmoticon);
+            return !Objects.equals(oldKey, newKey);
         }
     }
 
@@ -1035,7 +1099,7 @@ public class ChatThemeBottomSheet extends BottomSheet implements NotificationCen
             }
             boolean animated = true;
             ChatThemeItem newItem = items.get(position);
-            if (view.chatThemeItem == null || !view.chatThemeItem.chatTheme.getEmoticon().equals(newItem.chatTheme.getEmoticon()) || DrawerProfileCell.switchingTheme || view.lastThemeIndex != newItem.themeIndex) {
+            if (view.chatThemeItem == null || !view.chatThemeItem.chatTheme.getKey().equals(newItem.chatTheme.getKey()) || DrawerProfileCell.switchingTheme || view.lastThemeIndex != newItem.themeIndex) {
                 animated = false;
             }
 
