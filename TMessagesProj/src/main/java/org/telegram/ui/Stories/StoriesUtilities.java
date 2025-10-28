@@ -595,19 +595,26 @@ public class StoriesUtilities {
             canvas.drawPath(forumSegmentPath, paint);
             return;
         }
-        if (!params.isFirst && !params.isLast) {
-            if (startAngle < 90) {
+        if (params.useArcProgress) {
+            if (!params.isFirst && !params.isLast) {
+                if (startAngle < 90) {
+                    drawArcExcludeArc(canvas, rectTmp, paint, startAngle, endAngle, -params.progressToArc / 2, params.progressToArc / 2);
+                } else {
+                    drawArcExcludeArc(canvas, rectTmp, paint, startAngle, endAngle, -params.progressToArc / 2 + 180, params.progressToArc / 2 + 180);
+                }
+            } else if (params.isLast) {
+                drawArcExcludeArc(canvas, rectTmp, paint, startAngle, endAngle, -params.progressToArc / 2 + 180, params.progressToArc / 2 + 180);
+            } else if (params.isFirst) {
                 drawArcExcludeArc(canvas, rectTmp, paint, startAngle, endAngle, -params.progressToArc / 2, params.progressToArc / 2);
             } else {
-                drawArcExcludeArc(canvas, rectTmp, paint, startAngle, endAngle, -params.progressToArc / 2 + 180, params.progressToArc / 2 + 180);
+                canvas.drawArc(rectTmp, startAngle, endAngle - startAngle, false, paint);
             }
-        } else if (params.isLast) {
-            drawArcExcludeArc(canvas, rectTmp, paint, startAngle, endAngle, -params.progressToArc / 2 + 180, params.progressToArc / 2 + 180);
-        } else if (params.isFirst) {
-            // canvas.drawArc(rectTmp, startAngle, endAngle - startAngle, false, paint);
-            drawArcExcludeArc(canvas, rectTmp, paint, startAngle, endAngle, -params.progressToArc / 2, params.progressToArc / 2);
         } else {
-            canvas.drawArc(rectTmp, startAngle, endAngle - startAngle, false, paint);
+            if (startAngle < 90) {
+                drawArcExcludeArc(canvas, rectTmp, paint, startAngle, endAngle, params.rightTopAngleToExclude, params.rightBottomAngleToExclude);
+            } else {
+                drawArcExcludeArc(canvas, rectTmp, paint, startAngle, endAngle,  -params.leftTopAngleToExclude, params.leftBottomAngleToExclude);
+            }
         }
     }
 
@@ -1069,6 +1076,11 @@ public class StoriesUtilities {
         public TL_stories.StoryItem storyItem;
         public float progressToSegments = 1f;
         public float progressToArc = 0;
+        public float rightTopAngleToExclude = 0;
+        public float rightBottomAngleToExclude = 0;
+        public float leftTopAngleToExclude = 0;
+        public float leftBottomAngleToExclude = 0;
+        public boolean useArcProgress = true;
         public boolean isLast;
         public boolean isFirst;
         public int globalState;

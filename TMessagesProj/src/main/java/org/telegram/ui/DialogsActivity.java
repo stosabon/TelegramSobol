@@ -1705,9 +1705,9 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
             actionBar.setTranslationY(scrollYOffset);
         }
         if (containersAlpha != 1f) {
-            actionBar.getTitlesContainer().setPivotY(AndroidUtilities.statusBarHeight + ActionBar.getCurrentActionBarHeight() / 2f);
+            actionBar.getTitlesContainer().setPivotY(AndroidUtilities.statusBarHeight);
             actionBar.getTitlesContainer().setPivotX(dp(72));
-            float s = 0.8f + 0.2f * containersAlpha;
+            float s = 0.4f + 0.6f * containersAlpha;
             actionBar.getTitlesContainer().setScaleY(s);
             actionBar.getTitlesContainer().setScaleX(s);
             actionBar.getTitlesContainer().setAlpha(containersAlpha * (1f - progressToActionMode));
@@ -4144,7 +4144,7 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
 
                     int scrolled = super.scrollVerticallyBy(measuredDy, recycler, state);
                     if (scrolled == 0 && dy < 0 && isDragging && !rightSlidingDialogContainer.hasFragment() && hasStories && progressToActionMode == 0) {
-                        float newOverScroll = storiesOverscroll - dy * AndroidUtilities.lerp(0.2f, 0.5f, dialogStoriesCell.overscrollProgress());
+                        float newOverScroll = storiesOverscroll - dy * dialogStoriesCell.getOverScrollCoef();
                         setStoriesOvercroll(viewPage, newOverScroll);
                     }
                     return scrolled;
@@ -5412,9 +5412,6 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
                 fragmentView.dispatchTouchEvent(AndroidUtilities.emptyMotionEvent());
             });
             dialogStoriesCell.openOverscrollSelectedStory();
-            try {
-                dialogStoriesCell.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);
-            } catch (Exception ignored) {}
         }
     }
 
@@ -5461,7 +5458,11 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
             int scrollY = (int) -scrollYOffset;
             int actionBarHeight = getMaxScrollYOffset();
             if (scrollY != 0 && scrollY != actionBarHeight) {
-                if (scrollY < actionBarHeight / 2) {
+                float p = Utilities.clamp(-scrollYOffset / dp(DialogStoriesCell.HEIGHT_IN_DP), 1f, 0f);
+                if (progressToActionMode == 1f) {
+                    p = 1f;
+                }
+                if (p < dialogStoriesCell.K) {
                     if (viewPage.listView.canScrollVertically(-1)) {
                         viewPage.scroller.smoothScrollBy(-scrollY);
                         return true;
