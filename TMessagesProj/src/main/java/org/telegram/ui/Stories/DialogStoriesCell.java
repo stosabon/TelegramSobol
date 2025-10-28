@@ -716,19 +716,14 @@ public class DialogStoriesCell extends FrameLayout implements NotificationCenter
                             float rightBottomAngleToExclude = midAngle + chordAngleDegrees / 2f;
                             previousCell.params.rightTopAngleToExclude = rightTopAngleToExclude;
                             previousCell.params.rightBottomAngleToExclude = rightBottomAngleToExclude;
-                        } else {
-                            previousCell.params.rightTopAngleToExclude = 0;
-                            previousCell.params.rightBottomAngleToExclude = 0;
-                        }
-                        if (distance < radiusCurrent + radiusPrev) {
-                            double chordAngleRadiansCurrent = 2 * Math.acos(distance / (radiusCurrent + radiusPrev));
-                            float chordAngleDegreesCurrent = (float) Math.toDegrees(chordAngleRadiansCurrent);
                             float midAngleCurrent = (float) Math.toDegrees(Math.atan2(-dy, -dx));
-                            float leftTopAngleToExclude = -Math.abs(midAngleCurrent - chordAngleDegreesCurrent / 2f);
-                            float leftBottomAngleToExclude = Math.abs(midAngleCurrent + chordAngleDegreesCurrent / 2f);
+                            float leftTopAngleToExclude = -Math.abs(midAngleCurrent - chordAngleDegrees / 2f);
+                            float leftBottomAngleToExclude = Math.abs(midAngleCurrent + chordAngleDegrees / 2f);
                             cell.params.leftTopAngleToExclude = leftTopAngleToExclude;
                             cell.params.leftBottomAngleToExclude = leftBottomAngleToExclude;
                         } else {
+                            previousCell.params.rightTopAngleToExclude = 0;
+                            previousCell.params.rightBottomAngleToExclude = 0;
                             cell.params.leftTopAngleToExclude= 0;
                             cell.params.leftBottomAngleToExclude = 0;
                         }
@@ -823,7 +818,6 @@ public class DialogStoriesCell extends FrameLayout implements NotificationCenter
                             cell.setAlpha(1f);
                         }
                     } else {
-                        cell.setTranslationX(translationX);
                         cell.setAlpha(1f);
                     }
                     cell.setTranslationX(translationX);
