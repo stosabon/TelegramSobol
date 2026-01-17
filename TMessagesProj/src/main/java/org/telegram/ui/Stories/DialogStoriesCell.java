@@ -140,6 +140,7 @@ public class DialogStoriesCell extends FrameLayout implements NotificationCenter
     private final static int COLLAPSED_STATE = 2;
 
     float collapsedProgress = -1;
+    private float lastViewRight = 0;
 
     int currentState = -1;
 
@@ -325,6 +326,11 @@ public class DialogStoriesCell extends FrameLayout implements NotificationCenter
             }
         };
         addView(subtitleOverlayContainer, LayoutHelper.createFrame(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT));
+
+        titleView.setVisibility(GONE);
+        telegramLogoView.setVisibility(GONE);
+        emojiStatusView.setVisibility(GONE);
+        subtitleOverlayContainer.setVisibility(GONE);
 
         grayPaint.setColor(0xffD5DADE);
         grayPaint.setStyle(Paint.Style.STROKE);
@@ -673,7 +679,7 @@ public class DialogStoriesCell extends FrameLayout implements NotificationCenter
         } else if (currentState == COLLAPSED_STATE) {
             animateFromPosition = 0;
         }
-        float lastViewRight = 0;
+        lastViewRight = 0;
         if (currentState >= 0 && currentState != COLLAPSED_STATE) {
             if (animateFromPosition == -1) {
                 crossfade = true;
@@ -1192,10 +1198,25 @@ public class DialogStoriesCell extends FrameLayout implements NotificationCenter
         }
         updateCurrentState(state);
         invalidate();
+        if (getParent() != null) {
+            ((View) getParent()).invalidate();
+        }
     }
 
     public float getCollapsedProgress() {
         return collapsedProgress;
+    }
+
+    public float getCollapsedProgress2() {
+        return collapsedProgress2;
+    }
+
+    public float getLastViewRight() {
+        return lastViewRight;
+    }
+
+    public int getItemsCount() {
+        return adapter != null ? adapter.getItemCount() : 0;
     }
 
     public void scrollToFirstCell() {
@@ -2253,27 +2274,18 @@ public class DialogStoriesCell extends FrameLayout implements NotificationCenter
     }
 
     private void checkUi_titleVisibility() {
-        final float progress = MathUtils.clamp(Math.min(collapsedProgress, collapsedProgress2), 0, 1);
-        final float titleVisibility = animatorHasTitleText.getFloatValue();
-        final float logoVisibility = 1f - titleVisibility;
-        final float titleAlpha = titleVisibility * progress;
-        final float logoAlpha = logoVisibility * progress;
 
         if (titleView != null) {
-            titleView.setAlpha(titleAlpha);
-            titleView.setVisibility(titleAlpha > 0 ? VISIBLE : GONE);
+            titleView.setVisibility(GONE);
         }
         if (telegramLogoView != null) {
-            telegramLogoView.setAlpha(logoAlpha);
-            telegramLogoView.setVisibility(logoAlpha > 0 ? VISIBLE : GONE);
+            telegramLogoView.setVisibility(GONE);
         }
         if (emojiStatusView != null) {
-            emojiStatusView.setAlpha(logoAlpha);
-            emojiStatusView.setVisibility(logoAlpha > 0 ? VISIBLE : GONE);
+            emojiStatusView.setVisibility(GONE);
         }
         if (subtitleOverlayContainer != null) {
-            subtitleOverlayContainer.setAlpha(progress);
-            subtitleOverlayContainer.setVisibility(progress > 0 ? VISIBLE : GONE);
+            subtitleOverlayContainer.setVisibility(GONE);
         }
     }
 }

@@ -1802,18 +1802,22 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
             }
         }
         containersAlpha *= (1f - factorSearch);
-        if (containersAlpha != 1f) {
+
+        float collapseProgress = dialogStoriesCell != null ? dialogStoriesCell.getCollapsedProgress2() : 0f;
+
+        if (factorSearch > 0) {
+            float searchAlpha = 1f - factorSearch;
             actionBar.getTitlesContainer().setPivotY(AndroidUtilities.statusBarHeight);
             actionBar.getTitlesContainer().setPivotX(dp(72));
-            float s = 0.4f + 0.6f * containersAlpha;
+            float s = 0.4f + 0.6f * searchAlpha;
             actionBar.getTitlesContainer().setScaleY(s);
             actionBar.getTitlesContainer().setScaleX(s);
-            actionBar.getTitlesContainer().setAlpha(containersAlpha * (1f - progressToActionMode));
+            actionBar.getTitlesContainer().setAlpha(searchAlpha * (1f - progressToActionMode));
 
             actionBar.getTitleOverlayContainer().setPivotX(dp(72));
             actionBar.getTitleOverlayContainer().setScaleY(s);
             actionBar.getTitleOverlayContainer().setScaleX(s);
-            actionBar.getTitleOverlayContainer().setAlpha(containersAlpha * (1f - progressToActionMode));
+            actionBar.getTitleOverlayContainer().setAlpha(searchAlpha * (1f - progressToActionMode));
         } else {
             actionBar.getTitlesContainer().setScaleY(1f);
             actionBar.getTitlesContainer().setScaleX(1f);
@@ -1822,6 +1826,15 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
             actionBar.getTitleOverlayContainer().setScaleY(1f);
             actionBar.getTitleOverlayContainer().setScaleX(1f);
             actionBar.getTitleOverlayContainer().setAlpha(1f - progressToActionMode);
+
+            int storyCount = dialogStoriesCell != null ? dialogStoriesCell.getItemsCount() : 0;
+            float baseOffset = dp(24);
+            float perStoryOffset = dp(14);
+            int cappedCount = Math.min(storyCount, 4);
+            float maxTranslation = storyCount > 0 ? baseOffset + (cappedCount - 1) * perStoryOffset : 0;
+            float titleTranslationX = collapseProgress * maxTranslation * progressToDialogStoriesCell;
+            actionBar.getTitlesContainer().setTranslationX(titleTranslationX);
+            actionBar.getTitleOverlayContainer().setTranslationX(titleTranslationX + dp(4.5f));
         }
     }
 
