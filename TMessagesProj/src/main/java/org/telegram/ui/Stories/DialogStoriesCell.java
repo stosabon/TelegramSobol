@@ -28,6 +28,7 @@ import android.view.HapticFeedbackConstants;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.animation.LinearInterpolator;
 import android.view.animation.OvershootInterpolator;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
@@ -137,7 +138,6 @@ public class DialogStoriesCell extends FrameLayout implements NotificationCenter
     private final static int EXPANDED_STATE = 0;
     private final static int TRANSITION_STATE = 1;
     private final static int COLLAPSED_STATE = 2;
-    public int currentCellWidth;
 
     float collapsedProgress = -1;
 
@@ -236,39 +236,19 @@ public class DialogStoriesCell extends FrameLayout implements NotificationCenter
                 }
             });
             topView.addView(overscrollTextView, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 38, 0, 20, 20, 5, 0));
-
             topView.addView(seekBar, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 38, 0, 5, 0, 20, 0));
-            TextView collapsedSpringTextView = new TextView(getContext());
-            collapsedSpringTextView.setText("Collapsed spring: " + collapsedSpringCoef);
-            collapsedSpringTextView.setTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteBlueText));
-            topView.addView(collapsedSpringTextView, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 38, 0, 20, 0, 20, 0));
-            SeekBarView collapsedSpringSeekBar = new SeekBarView(getContext());
-            collapsedSpringSeekBar.setProgress((collapsedSpringCoef - 0.25f) / 2.25f);
-            collapsedSpringSeekBar.setDelegate(new SeekBarView.SeekBarViewDelegate() {
-                @Override
-                public void onSeekBarDrag(boolean stop, float progress) {
-                    collapsedSpringCoef = AndroidUtilities.lerp(0.25f, 2.5f, progress);
-                    collapsedSpringTextView.setText("Collapsed spring: " + collapsedSpringCoef);
-                }
-
-                @Override
-                public void onSeekBarPressed(boolean pressed) {
-
-                }
-            });
-            topView.addView(collapsedSpringSeekBar, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 38, 0, 5, 0, 20, 0));
-
             TextView expandedSpringTextView = new TextView(getContext());
-            expandedSpringTextView.setText("Expanded X spring: " + expandedSpringCoef);
+            expandedSpringTextView.setText("Expand bounce overshoot: " + expandedSpringCoef);
             expandedSpringTextView.setTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteBlueText));
             topView.addView(expandedSpringTextView, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, 38, 0, 20, 0, 20, 0));
             SeekBarView expandedSpringSeekBar = new SeekBarView(getContext());
-            expandedSpringSeekBar.setProgress((expandedSpringCoef - 0.25f) / 2.25f);
+            expandedSpringSeekBar.setProgress((expandedSpringCoef - 1f) / 2f);
             expandedSpringSeekBar.setDelegate(new SeekBarView.SeekBarViewDelegate() {
                 @Override
                 public void onSeekBarDrag(boolean stop, float progress) {
-                    expandedSpringCoef = AndroidUtilities.lerp(0.25f, 2.5f, progress);
-                    expandedSpringTextView.setText("Expanded X spring: " + expandedSpringCoef);
+                    expandedSpringCoef = AndroidUtilities.lerp(1f, 3f, progress);
+                    storiesExpandOvershootInterpolator = new OvershootInterpolator(expandedSpringCoef);
+                    expandedSpringTextView.setText("Expand bounce overshoot: " + expandedSpringCoef);
                 }
 
                 @Override
@@ -559,8 +539,7 @@ public class DialogStoriesCell extends FrameLayout implements NotificationCenter
     }
 
     private float overScrollCoef = 1f;
-    private float collapsedSpringCoef = 0.95f;
-    private float expandedSpringCoef = 0.9f;
+    private float expandedSpringCoef = 2f;
 
     public float getOverScrollCoef() {
         return overScrollCoef;
@@ -571,6 +550,7 @@ public class DialogStoriesCell extends FrameLayout implements NotificationCenter
             updateOnIdleState = true;
             return;
         }
+        updateOnIdleState = false;
         oldItems.clear();
         oldItems.addAll(items);
         oldMiniItems.clear();
@@ -728,30 +708,45 @@ public class DialogStoriesCell extends FrameLayout implements NotificationCenter
                 StoryCell cell = (StoryCell) recyclerListView.getChildAt(i);
                 cell.setClipInParent(false);
                 int adapterPosition = recyclerListView.getChildAdapterPosition(cell);
-                float cellCollapsedProgress = collapsedProgress;
-                if (adapterPosition >= animateFromPosition && adapterPosition < animateFromPosition + animateToDialogIds.size()) {
-                    int positionOffset = adapterPosition - animateFromPosition;
-                    if (positionOffset == animateFromPosition + 2) {
-                        cellCollapsedProgress = collapsedProgress;
-                    } else if (positionOffset == animateFromPosition + 1) {
-                        cellCollapsedProgress = (float) Math.pow(collapsedProgress, 0.5f);
+                float cellCollapsedProgress;
+                if (expandOvershootAnimator != null && expandOvershootAnimator.isRunning()) {
+                    float animProgress = 1 - Utilities.clamp(expandAnimatorProgress, 1f, 0f);
+                    float startValue = applyPositionPower(adapterPosition, animateFromPosition, animationStartCollapsedProgress1);
+                    float targetValue = collapsedProgress1;
+                    cellCollapsedProgress = AndroidUtilities.lerp(startValue, targetValue, animProgress);
+                } else if (collapseAnimator != null && collapseAnimator.isRunning()) {
+                    float animProgress;
+                    if (collapseAnimationStartCollapsedProgress1 >= 1f) {
+                        animProgress = 1f;
                     } else {
-                        cellCollapsedProgress = (float) Math.pow(collapsedProgress, 0.25f);
+                        animProgress = (collapseAnimatorProgress - collapseAnimationStartCollapsedProgress1)
+                                / (1f - collapseAnimationStartCollapsedProgress1);
                     }
-                }
-                if (adapterPosition < animateFromPosition) {
-                    cellCollapsedProgress = (float) Math.pow(collapsedProgress, 0.25f);
+                    animProgress = Utilities.clamp(animProgress, 1f, 0f);
+                    float startValue = collapseAnimationStartCollapsedProgress1;
+                    float targetValue = applyPositionPower(adapterPosition, animateFromPosition, collapsedProgress1);
+                    cellCollapsedProgress = AndroidUtilities.lerp(startValue, targetValue, animProgress);
+                } else if (!collapsed) {
+                    cellCollapsedProgress = collapsedProgress1;
+                } else {
+                    cellCollapsedProgress = applyPositionPower(adapterPosition, animateFromPosition, collapsedProgress1);
                 }
                 cell.setProgressToCollapsed(cellCollapsedProgress, collapsedProgress2, overscrollProgress, overscrollSelectedPosition == cell.position);
+
                 if (adapterPosition > animateFromPosition && adapterPosition < animateFromPosition + animateToDialogIds.size()) {
                     StoryCell previousCell = (StoryCell) recyclerListView.getChildAt(i - 1);
-                    if (previousCell != null) {
+                    if (previousCell == null || currentState == EXPANDED_STATE) {
+                        resetAngleParams(cell);
+                        if (previousCell != null) {
+                            resetAngleParams(previousCell);
+                        }
+                    } else {
                         float size = AndroidUtilities.dp(48);
                         float collapsedSize = AndroidUtilities.dp(COLLAPSED_SIZE);
                         float previousSize = AndroidUtilities.lerp(size, collapsedSize, previousCell.progressToCollapsed) + AndroidUtilities.dp(8);
                         float currentSize = AndroidUtilities.lerp(size, collapsedSize, cell.progressToCollapsed) + AndroidUtilities.dp(8);
                         float radiusPrev = previousSize / 2f;
-                        float radiusCurrent = currentSize / 2f ;
+                        float radiusCurrent = currentSize / 2f;
 
                         float centerXPrev = previousCell.params.originalAvatarRect.centerX() + previousCell.getX();
                         float centerYPrev = previousCell.params.originalAvatarRect.centerY() + previousCell.getY();
@@ -774,21 +769,17 @@ public class DialogStoriesCell extends FrameLayout implements NotificationCenter
                             float leftBottomAngleToExclude = Math.abs(midAngleCurrent + chordAngleDegrees / 2f);
                             cell.params.leftTopAngleToExclude = leftTopAngleToExclude;
                             cell.params.leftBottomAngleToExclude = leftBottomAngleToExclude;
+                            cell.params.rightTopAngleToExclude = 0;
+                            cell.params.rightBottomAngleToExclude = 0;
                         } else {
-                            previousCell.params.rightTopAngleToExclude = 0;
-                            previousCell.params.rightBottomAngleToExclude = 0;
-                            cell.params.leftTopAngleToExclude= 0;
-                            cell.params.leftBottomAngleToExclude = 0;
+                            resetAngleParams(previousCell);
+                            resetAngleParams(cell);
                         }
                         previousCell.params.useArcProgress = false;
                         cell.params.useArcProgress = false;
                     }
                 } else {
-                    cell.params.rightTopAngleToExclude = 0;
-                    cell.params.rightBottomAngleToExclude = 0;
-                    cell.params.leftTopAngleToExclude= 0;
-                    cell.params.leftBottomAngleToExclude = 0;
-                    cell.params.useArcProgress = false;
+                    resetAngleParams(cell);
                 }
 
                 float ovescrollSelectProgress = Utilities.clamp((overscrollProgress - 0.5f) / 0.5f, 1f, 0f);
@@ -796,8 +787,7 @@ public class DialogStoriesCell extends FrameLayout implements NotificationCenter
                 float overscrollAlpha = (float) (0.5 + 0.5f * (1f - ovescrollSelectProgress));
 
                 float translationX = 0;
-                float toX = 0;
-                // wave effect
+                float toX;
                 if (adapterPosition <= animateFromPosition) {
                     toX = 0;
                 } else if (adapterPosition == animateFromPosition + 1) {
@@ -806,40 +796,113 @@ public class DialogStoriesCell extends FrameLayout implements NotificationCenter
                     toX = AndroidUtilities.dp(COLLAPSED_DIS) + AndroidUtilities.dp(COLLAPSED_DIS) * cellCollapsedProgress - AndroidUtilities.dpf2(0.5f) + AndroidUtilities.lerp(AndroidUtilities.dp(COLLAPSED_DIS + COLLAPSED_DIS), 0f, collapsedProgress);
                 }
                 toX += menuItemsOffset;
-                if (!collapsed) {
-                    float dstCellX = 0;
-                    if (overscrollProgress > 0) {
-                        if (cell.position < overscrollSelectedPosition) {
-                            dstCellX = -overScrollOffset;
-                        } else if (cell.position > overscrollSelectedPosition) {
-                            dstCellX = overScrollOffset;
-                        }
+
+                float dstCellX = 0;
+                if (overscrollProgress > 0) {
+                    if (cell.position < overscrollSelectedPosition) {
+                        dstCellX = -overScrollOffset;
+                    } else if (cell.position > overscrollSelectedPosition) {
+                        dstCellX = overScrollOffset;
                     }
-                    translationX = AndroidUtilities.lerp(toX - cell.getLeft(), dstCellX,1 - expandOvershootAnimatorProgress);
+                }
+
+                if (!collapsed) {
+                    if (expandOvershootAnimator != null && expandOvershootAnimator.isRunning()) {
+                        float xAnimProgress = 1 - Math.min(expandAnimatorProgress, 1f);
+                        float collapsedX = toX - cell.getLeft();
+                        float expandedX = AndroidUtilities.lerp(dstCellX, -cell.getLeft(), collapsedProgress1);
+                        translationX = AndroidUtilities.lerp(collapsedX, expandedX, xAnimProgress);
+
+                        if (expandAnimatorProgress < 0 && allowExpandOvershoot) {
+                            float overshootAmount = -expandAnimatorProgress;
+                            float overshootDistance = AndroidUtilities.dp(24);
+
+                            if (adapterPosition <= animateFromPosition) {
+                                translationX -= overshootAmount * overshootDistance * 2f;
+                            } else {
+                                int positionOffset = adapterPosition - animateFromPosition;
+                                float diminishingFactor = 1f / (1f + positionOffset * 0.3f);
+                                translationX += overshootAmount * overshootDistance * diminishingFactor;
+                            }
+                        }
+                    } else {
+                        translationX = AndroidUtilities.lerp(dstCellX, -cell.getLeft(), collapsedProgress1);
+                    }
                 } else {
-                    translationX = AndroidUtilities.lerp(0, toX - cell.getLeft(), storiesCollapseInterpolator.getInterpolation(collapsedOvershootProgress));
+                    if (collapseAnimator != null && collapseAnimator.isRunning()) {
+                        float startX = AndroidUtilities.lerp(dstCellX, -cell.getLeft(), collapseAnimationStartCollapsedProgress1);
+                        float endX = toX - cell.getLeft();
+                        float animProgress;
+                        if (collapseAnimationStartCollapsedProgress1 >= 1f) {
+                            animProgress = 1f;
+                        } else {
+                            animProgress = (collapseAnimatorProgress - collapseAnimationStartCollapsedProgress1)
+                                    / (1f - collapseAnimationStartCollapsedProgress1);
+                        }
+                        translationX = AndroidUtilities.lerp(startX, endX, animProgress);
+                    } else {
+                        translationX = toX - cell.getLeft();
+                    }
                 }
 
                 final float collapsedFactor = MathUtils.clamp((collapsedProgress1 - 0.2f) / 0.1f, 0, 1);
                 float translationY, translationY1 = 0, translationY2 = 0;
-//              if (collapsed) {        // collapsedProgress1 > 0.3
-                    if (adapterPosition - animateFromPosition == 0) {
-                        translationY1 = lerp(0, bottomY - maxY, CubicBezierInterpolator.EASE_OUT_QUINT.getInterpolation(collapsedProgress));
-                    } else if (adapterPosition - animateFromPosition == 1) {
-                        translationY1 = lerp(0, (bottomY - maxY) * 0.65f, CubicBezierInterpolator.EASE_OUT_QUINT.getInterpolation(collapsedProgress));
+
+                float dstY = 0;
+                if (cell.position == overscrollSelectedPosition && overscrollProgress > 0) {
+                    dstY = -overScrollOffset / 2f;
+                }
+
+                float yBase = getPositionYBase(adapterPosition, animateFromPosition, bottomY, maxY);
+
+                if (expandOvershootAnimator != null && expandOvershootAnimator.isRunning()) {
+                    float yAnimProgress;
+                    if (animationStartCollapsedProgress1 <= 0f) {
+                        yAnimProgress = 1f;
+                    } else {
+                        yAnimProgress = 1f - (yStoriesProgress / animationStartCollapsedProgress1);
                     }
-//              } else {
-                    float dstY = 0;
-                    if (cell.position == overscrollSelectedPosition && overscrollProgress > 0) {
-                        dstY = -overScrollOffset / 2f;
+                    yAnimProgress = Utilities.clamp(yAnimProgress, 1f, 0f);
+
+                    float startCollapsedProgress = animationStartCollapsedProgress1;
+                    float startYStoriesProgress = animationStartCollapsedProgress1;
+                    float startCollapsedFactor = MathUtils.clamp((animationStartCollapsedProgress1 - 0.2f) / 0.1f, 0, 1);
+
+                    float startTranslationY1 = lerp(0, yBase, CubicBezierInterpolator.EASE_OUT_QUINT.getInterpolation(startCollapsedProgress));
+                    float startTranslationY2 = lerp(dstY, yBase, startYStoriesProgress);
+                    float startY = lerp(startTranslationY2, startTranslationY1, startCollapsedFactor);
+
+                    float endY = dstY;
+
+                    translationY = lerp(startY, endY, yAnimProgress);
+                } else if (collapseAnimator != null && collapseAnimator.isRunning()) {
+                    float yAnimProgress;
+                    if (collapseAnimationStartCollapsedProgress1 >= 1f) {
+                        yAnimProgress = 1f;
+                    } else {
+                        yAnimProgress = (yStoriesProgress - collapseAnimationStartCollapsedProgress1)
+                                / (1f - collapseAnimationStartCollapsedProgress1);
                     }
-                    if (adapterPosition - animateFromPosition == 0) {
-                        translationY2 = lerp(dstY, bottomY - maxY, yStoriesProgress);
-                    } else if (adapterPosition - animateFromPosition == 1) {
-                        translationY2 = lerp(dstY, (bottomY - maxY) * 0.65f, yStoriesProgress);
-                    }
-//              }
-                translationY = lerp(translationY2, translationY1, collapsedFactor);
+                    yAnimProgress = Utilities.clamp(yAnimProgress, 1f, 0f);
+
+                    float startCollapsedProgress = 0;
+                    float startYStoriesProgress = collapseAnimationStartCollapsedProgress1;
+                    float startCollapsedFactor = MathUtils.clamp((collapseAnimationStartCollapsedProgress1 - 0.2f) / 0.1f, 0, 1);
+
+                    float startTranslationY1 = lerp(0, yBase, CubicBezierInterpolator.EASE_OUT_QUINT.getInterpolation(startCollapsedProgress));
+                    float startTranslationY2 = lerp(dstY, yBase, startYStoriesProgress);
+                    float startY = lerp(startTranslationY2, startTranslationY1, startCollapsedFactor);
+
+                    float endTranslationY1 = lerp(0, yBase, CubicBezierInterpolator.EASE_OUT_QUINT.getInterpolation(collapsedProgress));
+                    float endTranslationY2 = lerp(dstY, yBase, yStoriesProgress);
+                    float endY = lerp(endTranslationY2, endTranslationY1, collapsedFactor);
+
+                    translationY = lerp(startY, endY, yAnimProgress);
+                } else {
+                    translationY1 = lerp(0, yBase, CubicBezierInterpolator.EASE_OUT_QUINT.getInterpolation(collapsedProgress));
+                    translationY2 = lerp(dstY, yBase, yStoriesProgress);
+                    translationY = lerp(translationY2, translationY1, collapsedFactor);
+                }
 
                 if (collapsedProgress > 0) {
                     boolean drawInParent = adapterPosition >= animateFromPosition && adapterPosition <= animateFromPosition + 2;
@@ -857,8 +920,6 @@ public class DialogStoriesCell extends FrameLayout implements NotificationCenter
                     cell.drawInParent = drawInParent;
                     cell.isFirst = adapterPosition == animateFromPosition;
                     cell.isLast = adapterPosition >= animateFromPosition + animateToDialogIds.size() - 1;
-                    cell.setTranslationX(translationX);
-                    cell.setTranslationY(translationY);
 
                     if (drawInParent) {
                         viewsDrawInParent.add(cell);
@@ -875,9 +936,18 @@ public class DialogStoriesCell extends FrameLayout implements NotificationCenter
                     } else {
                         cell.setAlpha(1f);
                     }
-                    cell.setTranslationX(translationX);
-                    cell.setTranslationY(translationY);
                 }
+                if (expandOvershootAnimator != null && expandOvershootAnimator.isRunning()) {
+                    boolean isInAnimatedRange = adapterPosition >= animateFromPosition && adapterPosition < animateFromPosition + animateToDialogIds.size();
+                    if (isInAnimatedRange) {
+                        cell.setAlpha(1f);
+                    } else {
+                        float animProgress = 1 - Utilities.clamp(expandAnimatorProgress, 1f, 0f);
+                        cell.setAlpha(animProgress);
+                    }
+                }
+                cell.setTranslationX(translationX);
+                cell.setTranslationY(translationY);
                 if (cell.drawInParent) {
                     float right = recyclerListView.getX() + cell.getX() + cell.getMeasuredWidth() / 2f + dp(ITEM_WIDTH) / 2f;
                     if (lastViewRight == 0 || right > lastViewRight) {
@@ -962,7 +1032,6 @@ public class DialogStoriesCell extends FrameLayout implements NotificationCenter
     @Override
     protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
         titleView.setTextSize(dp(!AndroidUtilities.isTablet() && getResources().getConfiguration().orientation == Configuration.ORIENTATION_LANDSCAPE ? 18 : 20));
-        currentCellWidth = dp(ITEM_WIDTH);
         AndroidUtilities.rectTmp.set(0, 0, getMeasuredWidth(), getMeasuredHeight());
         super.onMeasure(widthMeasureSpec, MeasureSpec.makeMeasureSpec(AndroidUtilities.dp(85 + FAKE_TOP_PADDING), MeasureSpec.EXACTLY));
     }
@@ -979,16 +1048,47 @@ public class DialogStoriesCell extends FrameLayout implements NotificationCenter
 
     boolean collapsed;
     public float K = 0.3f;
-    private ValueAnimator valueAnimator;
-    private ValueAnimator collapsedOvershootAnimator;
-    private float collapsedOvershootProgress = 1f;
+    private ValueAnimator collapseAnimator;
+    private float collapseAnimatorProgress = 1f;
+    private float expandAnimatorProgress = 1f;
+    private boolean allowExpandOvershoot = false;
+    private boolean disableNextExpandOvershoot = false;
+    private float animationStartCollapsedProgress1 = 0f;
+    private float collapseAnimationStartCollapsedProgress1 = 0f;
     private ValueAnimator yStoriesAnimator;
     private float yStoriesProgress;
     private ValueAnimator expandOvershootAnimator;
-    private float expandOvershootAnimatorProgress;
 
-    private OvershootInterpolator storiesExpandInterpolator = new OvershootInterpolator(expandedSpringCoef);
-    private OvershootInterpolator storiesCollapseInterpolator = new OvershootInterpolator(collapsedSpringCoef);
+    private LinearInterpolator storiesExpandLinearInterpolator = new LinearInterpolator();
+    private OvershootInterpolator storiesExpandOvershootInterpolator = new OvershootInterpolator(expandedSpringCoef);
+
+    private LinearInterpolator collapseInterpolator = new LinearInterpolator();
+
+    public void disableNextExpandOvershoot() {
+        disableNextExpandOvershoot = true;
+    }
+
+    private float applyPositionPower(int adapterPosition, int animateFromPosition, float baseValue) {
+        int positionOffset = adapterPosition - animateFromPosition;
+        if (positionOffset >= 2) return baseValue;
+        if (positionOffset == 1) return (float) Math.pow(baseValue, 0.5f);
+        return (float) Math.pow(baseValue, 0.25f);
+    }
+
+    private float getPositionYBase(int adapterPosition, int animateFromPosition, float bottomY, float maxY) {
+        int offset = adapterPosition - animateFromPosition;
+        if (offset == 0) return bottomY - maxY;
+        if (offset == 1) return (bottomY - maxY) * 0.65f;
+        return 0f;
+    }
+
+    private void resetAngleParams(StoryCell cell) {
+        cell.params.rightTopAngleToExclude = 0;
+        cell.params.rightBottomAngleToExclude = 0;
+        cell.params.leftTopAngleToExclude = 0;
+        cell.params.leftBottomAngleToExclude = 0;
+        cell.params.useArcProgress = false;
+    }
 
     public void setProgressToCollapse(float progress) {
         setProgressToCollapse(progress, true);
@@ -1012,14 +1112,7 @@ public class DialogStoriesCell extends FrameLayout implements NotificationCenter
                 storiesAnimatorSet = null;
             }
             if (animated) {
-                valueAnimator = ValueAnimator.ofFloat(collapsedProgress2, newCollapsed ? 1f : 0);
-                valueAnimator.addUpdateListener(animation -> {
-                    collapsedProgress2 = (float) animation.getAnimatedValue();
-                    checkCollapsedProgress();
-                });
-
-                valueAnimator.setInterpolator(CubicBezierInterpolator.EASE_OUT_QUINT);
-                yStoriesAnimator = ValueAnimator.ofFloat(collapsedProgress1, newCollapsed ? collapsedProgress1 : 0);
+                yStoriesAnimator = ValueAnimator.ofFloat(collapsedProgress1, newCollapsed ? 1f : 0);
                 yStoriesAnimator.addUpdateListener(animation -> {
                     yStoriesProgress = (float) animation.getAnimatedValue();
                 });
@@ -1042,26 +1135,36 @@ public class DialogStoriesCell extends FrameLayout implements NotificationCenter
                     }
                 });
                 ArrayList<Animator> animators = new ArrayList<>();
-                animators.add(valueAnimator);
                 animators.add(yStoriesAnimator);
                 if (collapsed) {
-                    storiesAnimatorSet.setDuration(1000);
-                    collapsedOvershootAnimator = ValueAnimator.ofFloat(collapsedProgress2, newCollapsed ? 1f : 0);
-                    collapsedOvershootAnimator.addUpdateListener(animation -> {
-                        collapsedOvershootProgress = (float) animation.getAnimatedValue();
+                    collapseAnimationStartCollapsedProgress1 = collapsedProgress1;
+                    collapseAnimator = ValueAnimator.ofFloat(collapsedProgress1, newCollapsed ? 1f : 0);
+                    collapseAnimator.addUpdateListener(animation -> {
+                        collapsedProgress2 = (float) animation.getAnimatedValue();
+                        collapseAnimatorProgress = (float) animation.getAnimatedValue();
+                        checkCollapsedProgress();
                     });
-                    storiesCollapseInterpolator = new OvershootInterpolator(collapsedSpringCoef);
-                    collapsedOvershootAnimator.setInterpolator(storiesCollapseInterpolator);
-                    collapsedOvershootAnimator.setDuration(750);
-                    animators.add(collapsedOvershootAnimator);
+                    collapseInterpolator = new LinearInterpolator();
+                    collapseAnimator.setInterpolator(collapseInterpolator);
+                    collapseAnimator.setDuration(100);
+                    animators.add(collapseAnimator);
                 } else {
+                    animationStartCollapsedProgress1 = collapsedProgress1;
+                    allowExpandOvershoot = !disableNextExpandOvershoot && (collapsedProgress1 < 0.26f);
+                    disableNextExpandOvershoot = false;
                     expandOvershootAnimator = ValueAnimator.ofFloat(collapsedProgress2, newCollapsed ? 1f : 0f);
-                    storiesExpandInterpolator = new OvershootInterpolator(expandedSpringCoef);
-                    expandOvershootAnimator.setInterpolator(storiesExpandInterpolator);
-                    expandOvershootAnimator.setDuration(350);
+                    if (allowExpandOvershoot) {
+                        expandOvershootAnimator.setInterpolator(storiesExpandOvershootInterpolator);
+                        expandOvershootAnimator.setDuration(250);
+                    } else {
+                        expandOvershootAnimator.setInterpolator(storiesExpandLinearInterpolator);
+                        expandOvershootAnimator.setDuration(150);
+                    }
                     expandOvershootAnimator.addUpdateListener(animation -> {
-                        expandOvershootAnimatorProgress = (float) animation.getAnimatedValue();
-                        invalidate();
+                        float animatedValue = (float) animation.getAnimatedValue();
+                        expandAnimatorProgress = animatedValue;
+                        collapsedProgress2 = Utilities.clamp(animatedValue, 1f, 0f);
+                        checkCollapsedProgress();
                     });
                     animators.add(expandOvershootAnimator);
                 }
@@ -1458,7 +1561,7 @@ public class DialogStoriesCell extends FrameLayout implements NotificationCenter
             NotificationCenter.listenEmojiLoading(textView);
             textView.setMaxLines(1);
 
-            textViewContainer.addView(textView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0, 1, 0, 1, 0));
+            textViewContainer.addView(textView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0, 4, 0, 4, 0));
             avatarImage.setRoundRadius(dp(48) / 2);
             crossfadeToAvatarImage.setRoundRadius(dp(48) / 2);
         }
@@ -1582,7 +1685,7 @@ public class DialogStoriesCell extends FrameLayout implements NotificationCenter
 
         @Override
         protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
-            super.onMeasure(MeasureSpec.makeMeasureSpec(mini ? dp(ITEM_WIDTH) : currentCellWidth, MeasureSpec.EXACTLY), MeasureSpec.makeMeasureSpec(dp(HEIGHT_IN_DP), MeasureSpec.EXACTLY));
+            super.onMeasure(MeasureSpec.makeMeasureSpec(dp(ITEM_WIDTH), MeasureSpec.EXACTLY), MeasureSpec.makeMeasureSpec(dp(HEIGHT_IN_DP), MeasureSpec.EXACTLY));
         }
 
         float getCy() {
@@ -1757,6 +1860,9 @@ public class DialogStoriesCell extends FrameLayout implements NotificationCenter
             }
             textViewContainer.setTranslationY(y + finalSize + dp(7) * (1f - progressToCollapsed));
             textViewContainer.setTranslationX(x - fromX);
+            float textScale = AndroidUtilities.lerp(1f, COLLAPSED_SIZE / 48f, progressToCollapsed);
+            textViewContainer.setScaleX(textScale);
+            textViewContainer.setScaleY(textScale);
             if (!mini) {
                 float p;
                 if (isSelf) {
@@ -1974,13 +2080,14 @@ public class DialogStoriesCell extends FrameLayout implements NotificationCenter
         int prevState = this.currentState;
         this.currentState = state;
         if (currentState != TRANSITION_STATE && updateOnIdleState) {
-            AndroidUtilities.runOnUIThread(() -> updateItems(true, false));
+            final boolean animateUpdate = currentState != EXPANDED_STATE;
+            AndroidUtilities.runOnUIThread(() -> {
+                updateItems(animateUpdate, false);
+            });
         }
         if (currentState == EXPANDED_STATE) {
             AndroidUtilities.forEachViews(recyclerListView, view -> {
                 view.setAlpha(1f);
-                view.setTranslationX(0);
-                view.setTranslationY(0);
             });
             listViewMini.setVisibility(View.INVISIBLE);
             recyclerListView.setVisibility(View.VISIBLE);
