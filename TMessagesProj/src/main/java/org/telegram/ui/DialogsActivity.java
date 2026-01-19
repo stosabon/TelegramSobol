@@ -680,6 +680,7 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
     private float storiesYOffset;
     private float tabsYOffset;
     private float scrollAdditionalOffset;
+    private float expandStartEffectiveWidth = -1f;
 
     private int debugLastUpdateAction = -1;
     private boolean slowedReloadAfterDialogClick;
@@ -1827,12 +1828,27 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
             actionBar.getTitleOverlayContainer().setScaleX(1f);
             actionBar.getTitleOverlayContainer().setAlpha(1f - progressToActionMode);
 
-            int storyCount = dialogStoriesCell != null ? dialogStoriesCell.getItemsCount() : 0;
-            float baseOffset = dp(24);
-            float perStoryOffset = dp(14);
-            int cappedCount = Math.min(storyCount, 4);
-            float maxTranslation = storyCount > 0 ? baseOffset + (cappedCount - 1) * perStoryOffset : 0;
-            float titleTranslationX = collapseProgress * maxTranslation * progressToDialogStoriesCell;
+            int miniCount = dialogStoriesCell != null ? dialogStoriesCell.getMiniItemsCount() : 0;
+            float baseWidth = miniCount > 0 ? dp(20) + miniCount * dp(14) : 0;
+            float lastViewRight = dialogStoriesCell != null ? dialogStoriesCell.getLastViewRight() : 0;
+            float menuOffset = dialogStoriesCell != null ? dialogStoriesCell.getMenuItemsOffset() : 0;
+            float contentWidth = lastViewRight > 0 ? lastViewRight - menuOffset : 0;
+            float actualWidth = contentWidth > 0 ? contentWidth : baseWidth;
+            boolean isExpanding = dialogStoriesCell != null && !dialogStoriesCell.isCollapsed();
+            float titleTranslationX;
+            if (collapseProgress == 0) {
+                titleTranslationX = 0;
+                expandStartEffectiveWidth = -1f;
+            } else if (isExpanding) {
+                if (expandStartEffectiveWidth < 0) {
+                    expandStartEffectiveWidth = actualWidth;
+                }
+                titleTranslationX = collapseProgress * expandStartEffectiveWidth;
+            } else {
+                expandStartEffectiveWidth = -1f;
+                titleTranslationX = actualWidth;
+            }
+            titleTranslationX *= progressToDialogStoriesCell;
             actionBar.getTitlesContainer().setTranslationX(titleTranslationX);
             actionBar.getTitleOverlayContainer().setTranslationX(titleTranslationX + dp(4.5f));
         }

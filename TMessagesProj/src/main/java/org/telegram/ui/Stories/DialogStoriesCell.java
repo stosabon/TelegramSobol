@@ -428,6 +428,10 @@ public class DialogStoriesCell extends FrameLayout implements NotificationCenter
         this.menuItemsOffset = menuItemsOffset;
     }
 
+    public float getMenuItemsOffset() {
+        return menuItemsOffset;
+    }
+
     public void openStoryForCell(StoryCell cell) {
         openStoryForCell(cell, false);
     }
@@ -1219,6 +1223,10 @@ public class DialogStoriesCell extends FrameLayout implements NotificationCenter
         return adapter != null ? adapter.getItemCount() : 0;
     }
 
+    public int getMiniItemsCount() {
+        return miniAdapter != null ? miniAdapter.getItemCount() : 0;
+    }
+
     public void scrollToFirstCell() {
         layoutManager.scrollToPositionWithOffset(0, 0);
     }
@@ -1282,6 +1290,10 @@ public class DialogStoriesCell extends FrameLayout implements NotificationCenter
 
     public boolean isFullExpanded() {
         return currentState == EXPANDED_STATE;
+    }
+
+    public boolean isCollapsed() {
+        return collapsed;
     }
 
     public boolean scrollToFirst() {
