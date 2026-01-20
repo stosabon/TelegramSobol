@@ -840,7 +840,26 @@ public class DialogStoriesCell extends FrameLayout implements NotificationCenter
                     }
                 } else {
                     if (collapseAnimator != null && collapseAnimator.isRunning()) {
-                        float startX = AndroidUtilities.lerp(dstCellX, -cell.getLeft(), collapseAnimationStartCollapsedProgress1);
+                        float startX;
+                        if (wasExpandInterrupted) {
+                            float xAnimProgress = 1 - Math.min(interruptedExpandAnimatorProgress, 1f);
+                            float collapsedX = toX - cell.getLeft();
+                            float expandedX = AndroidUtilities.lerp(dstCellX, -cell.getLeft(), collapseAnimationStartCollapsedProgress1);
+                            startX = AndroidUtilities.lerp(collapsedX, expandedX, xAnimProgress);
+                            if (interruptedExpandAnimatorProgress < 0 && allowExpandOvershoot) {
+                                float overshootAmount = -interruptedExpandAnimatorProgress;
+                                float overshootDistance = AndroidUtilities.dp(24);
+                                if (adapterPosition <= animateFromPosition) {
+                                    startX -= overshootAmount * overshootDistance * 2f;
+                                } else {
+                                    int positionOffset = adapterPosition - animateFromPosition;
+                                    float diminishingFactor = 1f / (1f + positionOffset * 0.3f);
+                                    startX += overshootAmount * overshootDistance * diminishingFactor;
+                                }
+                            }
+                        } else {
+                            startX = AndroidUtilities.lerp(dstCellX, -cell.getLeft(), collapseAnimationStartCollapsedProgress1);
+                        }
                         float endX = toX - cell.getLeft();
                         float animProgress;
                         if (collapseAnimationStartCollapsedProgress1 >= 1f) {
@@ -895,13 +914,34 @@ public class DialogStoriesCell extends FrameLayout implements NotificationCenter
                     }
                     yAnimProgress = Utilities.clamp(yAnimProgress, 1f, 0f);
 
-                    float startCollapsedProgress = 0;
-                    float startYStoriesProgress = collapseAnimationStartCollapsedProgress1;
-                    float startCollapsedFactor = MathUtils.clamp((collapseAnimationStartCollapsedProgress1 - 0.2f) / 0.1f, 0, 1);
+                    float startY;
+                    if (wasExpandInterrupted) {
+                        float interruptedYAnimProgress;
+                        if (animationStartCollapsedProgress1 <= 0f) {
+                            interruptedYAnimProgress = 1f;
+                        } else {
+                            interruptedYAnimProgress = 1f - (interruptedYStoriesProgress / animationStartCollapsedProgress1);
+                        }
+                        interruptedYAnimProgress = Utilities.clamp(interruptedYAnimProgress, 1f, 0f);
 
-                    float startTranslationY1 = lerp(0, yBase, CubicBezierInterpolator.EASE_OUT_QUINT.getInterpolation(startCollapsedProgress));
-                    float startTranslationY2 = lerp(dstY, yBase, startYStoriesProgress);
-                    float startY = lerp(startTranslationY2, startTranslationY1, startCollapsedFactor);
+                        float expandStartCollapsedProgress = animationStartCollapsedProgress1;
+                        float expandStartYStoriesProgress = animationStartCollapsedProgress1;
+                        float expandStartCollapsedFactor = MathUtils.clamp((animationStartCollapsedProgress1 - 0.2f) / 0.1f, 0, 1);
+
+                        float expandStartTranslationY1 = lerp(0, yBase, CubicBezierInterpolator.EASE_OUT_QUINT.getInterpolation(expandStartCollapsedProgress));
+                        float expandStartTranslationY2 = lerp(dstY, yBase, expandStartYStoriesProgress);
+                        float expandStartY = lerp(expandStartTranslationY2, expandStartTranslationY1, expandStartCollapsedFactor);
+
+                        startY = lerp(expandStartY, dstY, interruptedYAnimProgress);
+                    } else {
+                        float startCollapsedProgress = 0;
+                        float startYStoriesProgress = collapseAnimationStartCollapsedProgress1;
+                        float startCollapsedFactor = MathUtils.clamp((collapseAnimationStartCollapsedProgress1 - 0.2f) / 0.1f, 0, 1);
+
+                        float startTranslationY1 = lerp(0, yBase, CubicBezierInterpolator.EASE_OUT_QUINT.getInterpolation(startCollapsedProgress));
+                        float startTranslationY2 = lerp(dstY, yBase, startYStoriesProgress);
+                        startY = lerp(startTranslationY2, startTranslationY1, startCollapsedFactor);
+                    }
 
                     float endTranslationY1 = lerp(0, yBase, CubicBezierInterpolator.EASE_OUT_QUINT.getInterpolation(collapsedProgress));
                     float endTranslationY2 = lerp(dstY, yBase, yStoriesProgress);
@@ -1065,6 +1105,9 @@ public class DialogStoriesCell extends FrameLayout implements NotificationCenter
     private boolean disableNextExpandOvershoot = false;
     private float animationStartCollapsedProgress1 = 0f;
     private float collapseAnimationStartCollapsedProgress1 = 0f;
+    private float interruptedExpandAnimatorProgress = 1f;
+    private float interruptedYStoriesProgress = 0f;
+    private boolean wasExpandInterrupted = false;
     private ValueAnimator yStoriesAnimator;
     private float yStoriesProgress;
     private ValueAnimator expandOvershootAnimator;
@@ -1117,6 +1160,13 @@ public class DialogStoriesCell extends FrameLayout implements NotificationCenter
         if (newCollapsed != collapsed) {
             collapsed = newCollapsed;
             if (storiesAnimatorSet != null) {
+                if (expandOvershootAnimator != null && expandOvershootAnimator.isRunning()) {
+                    interruptedExpandAnimatorProgress = expandAnimatorProgress;
+                    interruptedYStoriesProgress = yStoriesProgress;
+                    wasExpandInterrupted = true;
+                } else {
+                    wasExpandInterrupted = false;
+                }
                 storiesAnimatorSet.removeAllListeners();
                 storiesAnimatorSet.cancel();
                 storiesAnimatorSet = null;
@@ -1134,6 +1184,10 @@ public class DialogStoriesCell extends FrameLayout implements NotificationCenter
                     public void onAnimationEnd(Animator animation) {
                         collapsedProgress2 = newCollapsed ? 1f : 0;
                         checkCollapsedProgress();
+                        if (newCollapsed) {
+                            wasExpandInterrupted = false;
+                            allowExpandOvershoot = false;
+                        }
                     }
 
                     @Override
@@ -1159,6 +1213,7 @@ public class DialogStoriesCell extends FrameLayout implements NotificationCenter
                     collapseAnimator.setDuration(100);
                     animators.add(collapseAnimator);
                 } else {
+                    wasExpandInterrupted = false;
                     animationStartCollapsedProgress1 = collapsedProgress1;
                     allowExpandOvershoot = !disableNextExpandOvershoot && (collapsedProgress1 < 0.26f);
                     disableNextExpandOvershoot = false;
@@ -1215,8 +1270,50 @@ public class DialogStoriesCell extends FrameLayout implements NotificationCenter
         return collapsedProgress2;
     }
 
+    public float getCollapsedProgress1() {
+        return collapsedProgress1;
+    }
+
     public float getLastViewRight() {
         return lastViewRight;
+    }
+
+    public float getExpandedLastViewRight() {
+        if (recyclerListView == null || recyclerListView.getChildCount() == 0) {
+            return 0;
+        }
+
+        int animateFromPosition = -1;
+        long selfId = UserConfig.getInstance(currentAccount).getClientUserId();
+        boolean drawSelfInMini = shouldDrawSelfInMini();
+
+        for (int i = 0; i < recyclerListView.getChildCount(); i++) {
+            StoryCell cell = (StoryCell) recyclerListView.getChildAt(i);
+            if (cell.dialogId != selfId || drawSelfInMini) {
+                animateFromPosition = recyclerListView.getChildAdapterPosition(cell);
+                break;
+            }
+        }
+
+        if (animateFromPosition < 0) {
+            animateFromPosition = layoutManager.findFirstVisibleItemPosition();
+            if (animateFromPosition < 0) {
+                animateFromPosition = 0;
+            }
+        }
+
+        float maxRight = 0;
+        for (int i = 0; i < recyclerListView.getChildCount(); i++) {
+            View child = recyclerListView.getChildAt(i);
+            int adapterPosition = recyclerListView.getChildAdapterPosition(child);
+            if (adapterPosition >= animateFromPosition && adapterPosition <= animateFromPosition + 2) {
+                float right = recyclerListView.getX() + child.getX() + child.getMeasuredWidth() / 2f + dp(ITEM_WIDTH) / 2f;
+                if (right > maxRight) {
+                    maxRight = right;
+                }
+            }
+        }
+        return maxRight;
     }
 
     public int getItemsCount() {

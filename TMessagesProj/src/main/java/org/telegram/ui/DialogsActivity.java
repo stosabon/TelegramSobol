@@ -680,7 +680,6 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
     private float storiesYOffset;
     private float tabsYOffset;
     private float scrollAdditionalOffset;
-    private float expandStartEffectiveWidth = -1f;
 
     private int debugLastUpdateAction = -1;
     private boolean slowedReloadAfterDialogClick;
@@ -1760,6 +1759,9 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
         }
     }
 
+    private float collapsedStableWidth = -1f;
+    private float cachedExpandedWidth = -1f;
+
     private void updateStoriesViewAlpha(float alpha) {
         final float factorSearch = Utilities.clamp(searchAnimationProgress * 2, 1f, 0f);
         dialogStoriesCell.setAlpha((1f - progressToActionMode) * alpha * progressToDialogStoriesCell * (1f - factorSearch));
@@ -1804,8 +1806,6 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
         }
         containersAlpha *= (1f - factorSearch);
 
-        float collapseProgress = dialogStoriesCell != null ? dialogStoriesCell.getCollapsedProgress2() : 0f;
-
         if (factorSearch > 0) {
             float searchAlpha = 1f - factorSearch;
             actionBar.getTitlesContainer().setPivotY(AndroidUtilities.statusBarHeight);
@@ -1828,25 +1828,48 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
             actionBar.getTitleOverlayContainer().setScaleX(1f);
             actionBar.getTitleOverlayContainer().setAlpha(1f - progressToActionMode);
 
-            int miniCount = dialogStoriesCell != null ? dialogStoriesCell.getMiniItemsCount() : 0;
-            float baseWidth = miniCount > 0 ? dp(20) + miniCount * dp(14) : 0;
-            float lastViewRight = dialogStoriesCell != null ? dialogStoriesCell.getLastViewRight() : 0;
-            float menuOffset = dialogStoriesCell != null ? dialogStoriesCell.getMenuItemsOffset() : 0;
-            float contentWidth = lastViewRight > 0 ? lastViewRight - menuOffset : 0;
-            float actualWidth = contentWidth > 0 ? contentWidth : baseWidth;
-            boolean isExpanding = dialogStoriesCell != null && !dialogStoriesCell.isCollapsed();
+            float progress1 = dialogStoriesCell.getCollapsedProgress1();
+            float progress2 = dialogStoriesCell.getCollapsedProgress2();
+            float scaledProgress1 = progress1 > 0 ? Math.min(1f, progress1 / dialogStoriesCell.K) : 0;
+            float collapseProgress = Math.max(scaledProgress1, progress2);
+
+            float menuOffset = dialogStoriesCell.getMenuItemsOffset();
+            float lastViewRight = dialogStoriesCell.getLastViewRight();
+            float actualWidth = 0;
+            if (lastViewRight > 0) {
+                actualWidth = lastViewRight - menuOffset - dp(8);
+            }
+            float progress2Early = dialogStoriesCell != null ? dialogStoriesCell.getCollapsedProgress2() : collapseProgress;
+
+            float targetWidth;
+            if (progress2Early >= 1f && actualWidth > 0) {
+                targetWidth = actualWidth;
+                collapsedStableWidth = actualWidth;
+            } else if (collapsedStableWidth > 0) {
+                targetWidth = collapsedStableWidth;
+            } else {
+                int miniCount = dialogStoriesCell.getMiniItemsCount();
+                targetWidth = miniCount > 0 ? dp(12) + miniCount * dp(14) : 0;
+            }
+
             float titleTranslationX;
             if (collapseProgress == 0) {
                 titleTranslationX = 0;
-                expandStartEffectiveWidth = -1f;
-            } else if (isExpanding) {
-                if (expandStartEffectiveWidth < 0) {
-                    expandStartEffectiveWidth = actualWidth;
-                }
-                titleTranslationX = collapseProgress * expandStartEffectiveWidth;
+                cachedExpandedWidth = -1f;
             } else {
-                expandStartEffectiveWidth = -1f;
-                titleTranslationX = actualWidth;
+                float expandedLastViewRight = dialogStoriesCell.getExpandedLastViewRight();
+                float lastViewRightDirect = dialogStoriesCell.getLastViewRight();
+                boolean isCollapsing = dialogStoriesCell != null ? dialogStoriesCell.isCollapsed() : collapseProgress > dialogStoriesCell.K;
+                if (expandedLastViewRight > 0) {
+                    cachedExpandedWidth = expandedLastViewRight - menuOffset - dp(8);
+                }
+
+                if (isCollapsing && lastViewRightDirect > 0) {
+                    titleTranslationX = lastViewRightDirect - menuOffset - dp(8);
+                } else {
+                    float expandedWidth = cachedExpandedWidth > 0 ? cachedExpandedWidth : targetWidth;
+                    titleTranslationX = collapseProgress * expandedWidth;
+                }
             }
             titleTranslationX *= progressToDialogStoriesCell;
             actionBar.getTitlesContainer().setTranslationX(titleTranslationX);
