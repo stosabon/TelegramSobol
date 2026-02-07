@@ -10,7 +10,6 @@ import android.animation.AnimatorSet;
 import android.animation.ValueAnimator;
 import android.annotation.SuppressLint;
 import android.content.Context;
-import android.content.res.Configuration;
 import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.graphics.PorterDuff;
@@ -19,9 +18,7 @@ import android.graphics.Rect;
 import android.graphics.drawable.Drawable;
 import android.text.Layout;
 import android.text.Spannable;
-import android.text.SpannableStringBuilder;
 import android.text.Spanned;
-import android.text.TextUtils;
 import android.text.style.ClickableSpan;
 import android.view.Gravity;
 import android.view.HapticFeedbackConstants;
@@ -31,7 +28,6 @@ import android.view.ViewGroup;
 import android.view.animation.LinearInterpolator;
 import android.view.animation.OvershootInterpolator;
 import android.widget.FrameLayout;
-import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
@@ -60,14 +56,12 @@ import org.telegram.tgnet.TLObject;
 import org.telegram.tgnet.TLRPC;
 import org.telegram.tgnet.tl.TL_stories;
 import org.telegram.ui.ActionBar.ActionBar;
-import org.telegram.ui.ActionBar.ActionBarAnimatedSubtitleOverlayContainer;
 import org.telegram.ui.ActionBar.AlertDialog;
 import org.telegram.ui.ActionBar.BaseFragment;
 import org.telegram.ui.ActionBar.SimpleTextView;
 import org.telegram.ui.ActionBar.Theme;
 import org.telegram.ui.Components.AnimatedEmojiDrawable;
 import org.telegram.ui.Components.AnimatedFloat;
-import org.telegram.ui.Components.AnimatedTextView;
 import org.telegram.ui.Components.AvatarDrawable;
 import org.telegram.ui.Components.ButtonBounce;
 import org.telegram.ui.Components.CanvasButton;
@@ -92,7 +86,6 @@ import java.util.Objects;
 
 import me.vkryl.android.animator.BoolAnimator;
 import me.vkryl.android.animator.FactorAnimator;
-import me.vkryl.android.animator.ReplaceAnimator;
 
 @SuppressLint("ViewConstructor")
 public class DialogStoriesCell extends FrameLayout implements NotificationCenter.NotificationCenterDelegate, FactorAnimator.Target {
@@ -148,20 +141,12 @@ public class DialogStoriesCell extends FrameLayout implements NotificationCenter
     ArrayList<Long> animateToDialogIds = new ArrayList<>();
     DefaultItemAnimator itemAnimator;
     LinearLayoutManager layoutManager;
-    AnimatedTextView titleView;
-    ActionBarAnimatedSubtitleOverlayContainer subtitleOverlayContainer;
-    ImageView telegramLogoView;
-    ImageView emojiStatusView;
     AnimatedEmojiDrawable.SwapAnimatedEmojiDrawable statusDrawable;
     boolean drawCircleForce;
     ArrayList<Runnable> afterNextLayout = new ArrayList<>();
     private float collapsedProgress1 = -1;
     private float collapsedProgress2;
     BaseFragment fragment;
-    private CharSequence currentTitle;
-    private boolean hasOverlayText;
-    private int overlayTextId;
-    private SpannableStringBuilder uploadingString;
     private ValueAnimator textAnimator;
     private Runnable animationRunnable;
     public boolean allowGlobalUpdates = true;
@@ -294,43 +279,9 @@ public class DialogStoriesCell extends FrameLayout implements NotificationCenter
         recyclerListView.setAdapter(adapter);
         addView(recyclerListView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0, 0, FAKE_TOP_PADDING, 0, 0));
 
-        titleView = new AnimatedTextView(getContext(), true, true, false);
-        titleView.setGravity(Gravity.LEFT);
-        titleView.setTextColor(getTextColor());
-        titleView.setEllipsizeByGradient(true);
-        titleView.setTypeface(AndroidUtilities.bold());
-        titleView.setPadding(0, dp(8), 0, dp(8));
-        titleView.setTextSize(dp(!AndroidUtilities.isTablet() && getResources().getConfiguration().orientation == Configuration.ORIENTATION_LANDSCAPE ? 18 : 20));
-        addView(titleView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
-
-        telegramLogoView = new ImageView(context);
-        telegramLogoView.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
-        telegramLogoView.setImageResource(R.drawable.telegram_logo_2);
-        telegramLogoView.setColorFilter(getTextLogoColor(), PorterDuff.Mode.MULTIPLY);
-        addView(telegramLogoView, LayoutHelper.createFrame(90, 22));
-
         statusDrawable = new AnimatedEmojiDrawable.SwapAnimatedEmojiDrawable(null, dp(26));
         statusDrawable.center = true;
         statusDrawable.setCallback(this);
-
-        emojiStatusView = new ImageView(context);
-        emojiStatusView.setScaleType(ImageView.ScaleType.CENTER);
-        emojiStatusView.setImageDrawable(statusDrawable);
-        addView(emojiStatusView, LayoutHelper.createFrame(40, 40));
-
-        subtitleOverlayContainer = new ActionBarAnimatedSubtitleOverlayContainer(context, null, ellipsizeSpanAnimator) {
-            @Override
-            public void onItemChanged(ReplaceAnimator<?> animator) {
-                super.onItemChanged(animator);
-                DialogStoriesCell.this.invalidate();
-            }
-        };
-        addView(subtitleOverlayContainer, LayoutHelper.createFrame(LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT));
-
-        titleView.setVisibility(GONE);
-        telegramLogoView.setVisibility(GONE);
-        emojiStatusView.setVisibility(GONE);
-        subtitleOverlayContainer.setVisibility(GONE);
 
         grayPaint.setColor(0xffD5DADE);
         grayPaint.setStyle(Paint.Style.STROKE);
@@ -415,7 +366,6 @@ public class DialogStoriesCell extends FrameLayout implements NotificationCenter
         addView(listViewMini,  LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT, 0, 0, FAKE_TOP_PADDING, 0, 0));
         setClipChildren(false);
         setClipToPadding(false);
-        checkUi_titleVisibility();
 
         updateItems(false, false);
     }
@@ -577,45 +527,7 @@ public class DialogStoriesCell extends FrameLayout implements NotificationCenter
                 items.add(new Item(dialogId));
             }
         }
-        int size = items.size();
-        if (!storiesController.hasSelfStories()) {
-            size--;
-        }
-        int totalCount;
-        boolean hidden = type == TYPE_ARCHIVE;
-        totalCount = Math.max(1, Math.max(storiesController.getTotalStoriesCount(hidden), size));
-
-        currentTitle = null;
-        if (storiesController.hasOnlySelfStories()) {
-            if (storiesController.hasUploadingStories(UserConfig.getInstance(currentAccount).getClientUserId())) {
-                String str = LocaleController.getString(R.string.UploadingStory);
-                int index = str.indexOf("…");
-                if (index > 0) {
-                    if (uploadingString == null) {
-                        SpannableStringBuilder spannableStringBuilder = SpannableStringBuilder.valueOf(str);
-                        UploadingDotsSpannable dotsSpannable = new UploadingDotsSpannable();
-                        spannableStringBuilder.setSpan(dotsSpannable, spannableStringBuilder.length() - 1, spannableStringBuilder.length(), 0);
-                        dotsSpannable.setParent(titleView, true);
-                        uploadingString = spannableStringBuilder;
-                    }
-                    currentTitle = uploadingString;
-                } else {
-                    currentTitle = str;
-                }
-            } else {
-                currentTitle = menuItemsOffset < dp(50) ? null :
-                    LocaleController.getString(R.string.MyStory);
-            }
-        } else {
-            currentTitle = menuItemsOffset < dp(50) ? null :
-                LocaleController.formatPluralString("Stories", totalCount);
-        }
-
-        if (!hasOverlayText) {
-            titleView.setText(currentTitle, animated && !LocaleController.isRTL);
-        }
-
-        animatorHasTitleText.setValue(!TextUtils.isEmpty(currentTitle), animated);
+        animatorHasTitleText.setValue(false, animated);
 
         miniItems.clear();
         for (int i = 0; i < items.size(); i++) {
@@ -733,7 +645,15 @@ public class DialogStoriesCell extends FrameLayout implements NotificationCenter
                                 / (1f - collapseAnimationStartCollapsedProgress1);
                     }
                     animProgress = Utilities.clamp(animProgress, 1f, 0f);
-                    float startValue = collapseAnimationStartCollapsedProgress1;
+                    float startValue;
+                    if (wasExpandInterrupted) {
+                        float interruptedAnimProgress = 1 - Utilities.clamp(interruptedExpandAnimatorProgress, 1f, 0f);
+                        float expandStartValue = applyPositionPower(adapterPosition, animateFromPosition, animationStartCollapsedProgress1);
+                        float expandTargetValue = collapseAnimationStartCollapsedProgress1;
+                        startValue = AndroidUtilities.lerp(expandStartValue, expandTargetValue, interruptedAnimProgress);
+                    } else {
+                        startValue = collapseAnimationStartCollapsedProgress1;
+                    }
                     float targetValue = applyPositionPower(adapterPosition, animateFromPosition, collapsedProgress1);
                     cellCollapsedProgress = AndroidUtilities.lerp(startValue, targetValue, animProgress);
                 } else if (!collapsed) {
@@ -900,10 +820,7 @@ public class DialogStoriesCell extends FrameLayout implements NotificationCenter
                     float startTranslationY1 = lerp(0, yBase, CubicBezierInterpolator.EASE_OUT_QUINT.getInterpolation(startCollapsedProgress));
                     float startTranslationY2 = lerp(dstY, yBase, startYStoriesProgress);
                     float startY = lerp(startTranslationY2, startTranslationY1, startCollapsedFactor);
-
-                    float endY = dstY;
-
-                    translationY = lerp(startY, endY, yAnimProgress);
+                    translationY = lerp(startY, dstY, yAnimProgress);
                 } else if (collapseAnimator != null && collapseAnimator.isRunning()) {
                     float yAnimProgress;
                     if (collapseAnimationStartCollapsedProgress1 >= 1f) {
@@ -954,6 +871,12 @@ public class DialogStoriesCell extends FrameLayout implements NotificationCenter
                     translationY = lerp(translationY2, translationY1, collapsedFactor);
                 }
 
+                float dstRotation = 0;
+                if (overscrollProgress > 0) {
+                    dstRotation = 90f * 0.5f * overscrollProgress;
+                }
+                cell.params.rotationOffset = AndroidUtilities.lerp(dstRotation, -90f, collapsedProgress1);
+
                 if (collapsedProgress > 0) {
                     boolean drawInParent = adapterPosition >= animateFromPosition && adapterPosition <= animateFromPosition + 2;
                     if (crossfade) {
@@ -996,8 +919,10 @@ public class DialogStoriesCell extends FrameLayout implements NotificationCenter
                         cell.setAlpha(animProgress);
                     }
                 }
-                cell.setTranslationX(translationX);
-                cell.setTranslationY(translationY);
+                if (collapsedProgress > 0 || recyclerListView.getItemAnimator() == null || !recyclerListView.getItemAnimator().isRunning()) {
+                    cell.setTranslationX(translationX);
+                    cell.setTranslationY(translationY);
+                }
                 if (cell.drawInParent) {
                     float right = recyclerListView.getX() + cell.getX() + cell.getMeasuredWidth() / 2f + dp(ITEM_WIDTH) / 2f;
                     if (lastViewRight == 0 || right > lastViewRight) {
@@ -1025,23 +950,8 @@ public class DialogStoriesCell extends FrameLayout implements NotificationCenter
 
         float progress = Math.min(collapsedProgress, collapsedProgress2);
         if (progress != 0) {
-            final float translationOffset = subtitleOverlayContainer.getTotalVisibility() * -dp(10);
-
-            float offset = (titleView.getMeasuredHeight() - titleView.getTextHeight()) / 2f;
-            titleView.setTranslationY(bottomY + AndroidUtilities.dp(14) - offset + AndroidUtilities.dp(FAKE_TOP_PADDING));
             int cellWidth = dp(72);
             lastViewRight += -cellWidth + dp(6) + getAvatarRight(cellWidth, collapsedProgress) + dp(12);
-            titleView.setTranslationX(lastViewRight);
-            titleView.getDrawable().setRightPadding(lastViewRight + actionBar.menu.getItemsMeasuredWidth(false) * progress);
-
-            telegramLogoView.setTranslationX(titleView.getTranslationX() - dpf2(3.33f));
-            telegramLogoView.setTranslationY(bottomY + dp(14 + FAKE_TOP_PADDING + 4.333f) + translationOffset /*titleView.getTranslationY() + dpf2(37.33f)*/);
-
-            emojiStatusView.setTranslationX(titleView.getTranslationX() - dpf2(6.33f) + telegramLogoView.getMeasuredWidth());
-            emojiStatusView.setTranslationY(bottomY + dp(14 - 11 + FAKE_TOP_PADDING + 4.333f) + translationOffset);
-
-            subtitleOverlayContainer.setTranslationX(titleView.getTranslationX() - dp(3.5f));
-            subtitleOverlayContainer.setTranslationY(bottomY + dp(14 + FAKE_TOP_PADDING + 4.333f + 8));
         }
 
         super.dispatchDraw(canvas);
@@ -1081,7 +991,6 @@ public class DialogStoriesCell extends FrameLayout implements NotificationCenter
 
     @Override
     protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
-        titleView.setTextSize(dp(!AndroidUtilities.isTablet() && getResources().getConfiguration().orientation == Configuration.ORIENTATION_LANDSCAPE ? 18 : 20));
         AndroidUtilities.rectTmp.set(0, 0, getMeasuredWidth(), getMeasuredHeight());
         super.onMeasure(widthMeasureSpec, MeasureSpec.makeMeasureSpec(AndroidUtilities.dp(85 + FAKE_TOP_PADDING), MeasureSpec.EXACTLY));
     }
@@ -1210,7 +1119,7 @@ public class DialogStoriesCell extends FrameLayout implements NotificationCenter
                     });
                     collapseInterpolator = new LinearInterpolator();
                     collapseAnimator.setInterpolator(collapseInterpolator);
-                    collapseAnimator.setDuration(100);
+                    collapseAnimator.setDuration(150);
                     animators.add(collapseAnimator);
                 } else {
                     wasExpandInterrupted = false;
@@ -1247,8 +1156,6 @@ public class DialogStoriesCell extends FrameLayout implements NotificationCenter
 
     private void checkCollapsedProgress() {
         collapsedProgress = 1f - AndroidUtilities.lerp(1f - collapsedProgress1, 1f, 1f - collapsedProgress2);
-        checkUi_titleVisibility();
-
         int state = EXPANDED_STATE;
         if (collapsedProgress == 1f) {
             state = COLLAPSED_STATE;
@@ -1332,8 +1239,6 @@ public class DialogStoriesCell extends FrameLayout implements NotificationCenter
         StoriesUtilities.updateColors();
         int color = getTextColor();
 
-        titleView.setTextColor(color);
-        telegramLogoView.setColorFilter(getTextLogoColor(), PorterDuff.Mode.MULTIPLY);
         AndroidUtilities.forEachViews(recyclerListView, view -> {
             StoryCell cell = (StoryCell) view;
             cell.invalidate();
@@ -1449,43 +1354,6 @@ public class DialogStoriesCell extends FrameLayout implements NotificationCenter
     }
 
     EllipsizeSpanAnimator ellipsizeSpanAnimator = new EllipsizeSpanAnimator(this);
-
-    public void setTitleOverlayText(String titleOverlayText, int textId) {
-        subtitleOverlayContainer.setText(titleOverlayText != null ? LocaleController.getString(titleOverlayText, textId) : null, true);
-
-        /*
-        boolean hasEllipsizedText = false;
-        if (titleOverlayText != null) {
-            hasOverlayText = true;
-            if (overlayTextId != textId) {
-                overlayTextId = textId;
-                String title = LocaleController.getString(titleOverlayText, textId);
-                CharSequence textToSet = title;
-                if (!TextUtils.isEmpty(title)) {
-                    int index = TextUtils.indexOf(textToSet, "...");
-                    if (index >= 0) {
-                        SpannableString spannableString = SpannableString.valueOf(textToSet);
-                        ellipsizeSpanAnimator.wrap(spannableString, index);
-                        hasEllipsizedText = true;
-                        textToSet = spannableString;
-                    }
-                }
-                titleView.setText(textToSet, !LocaleController.isRTL);
-            }
-        } else {
-            hasOverlayText = false;
-            overlayTextId = 0;
-            titleView.setText(currentTitle, !LocaleController.isRTL);
-        }
-
-        animatorHasOverlayText.setValue(hasOverlayText, true);
-        if (hasEllipsizedText) {
-            ellipsizeSpanAnimator.addView(titleView);
-        } else {
-            ellipsizeSpanAnimator.removeView(titleView);
-        }
-        */
-    }
 
     public void setClipTop(int clipTop) {
         if (clipTop < 0) {
@@ -2207,7 +2075,6 @@ public class DialogStoriesCell extends FrameLayout implements NotificationCenter
         if (this.currentState == state) {
             return;
         }
-        int prevState = this.currentState;
         this.currentState = state;
         if (currentState != TRANSITION_STATE && updateOnIdleState) {
             final boolean animateUpdate = currentState != EXPANDED_STATE;
@@ -2364,7 +2231,6 @@ public class DialogStoriesCell extends FrameLayout implements NotificationCenter
             statusDrawable.setParticles(false, animated);
         }
         statusDrawable.setColor(getThemedColor(Theme.key_profile_verifiedBackground));
-        emojiStatusView.invalidate();
     }
 
     private int getThemedColor(int key) {
@@ -2377,24 +2243,5 @@ public class DialogStoriesCell extends FrameLayout implements NotificationCenter
 
     @Override
     public void onFactorChanged(int id, float factor, float fraction, FactorAnimator callee) {
-        if (id == ANIMATOR_ID_HAS_TITLE_TEXT) {
-            checkUi_titleVisibility();
-        }
-    }
-
-    private void checkUi_titleVisibility() {
-
-        if (titleView != null) {
-            titleView.setVisibility(GONE);
-        }
-        if (telegramLogoView != null) {
-            telegramLogoView.setVisibility(GONE);
-        }
-        if (emojiStatusView != null) {
-            emojiStatusView.setVisibility(GONE);
-        }
-        if (subtitleOverlayContainer != null) {
-            subtitleOverlayContainer.setVisibility(GONE);
-        }
     }
 }

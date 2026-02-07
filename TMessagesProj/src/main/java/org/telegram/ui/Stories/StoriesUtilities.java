@@ -477,20 +477,20 @@ public class StoriesUtilities {
             } else if (u == 2) {
                 localPaint = livePaint;
             }
-            float startAngle = -90;
-            float endAngle = 90;
+            float startAngle = -90 + params.rotationOffset;
+            float endAngle = 90 + params.rotationOffset;
             drawSegment(canvas, rectTmp, localPaint, startAngle, endAngle, params, isForum);
-            startAngle = 90;
-            endAngle = 270;
+            startAngle = 90 + params.rotationOffset;
+            endAngle = 270 + params.rotationOffset;
             drawSegment(canvas, rectTmp, localPaint, startAngle, endAngle, params, isForum);
 
             if (params.progressToSegments != 1 && localPaint != globalPaint) {
                 globalPaint.setAlpha((int) (255 * (1f - params.progressToSegments)));
-                startAngle = -90;
-                endAngle = 90;
+                startAngle = -90 + params.rotationOffset;
+                endAngle = 90 + params.rotationOffset;
                 drawSegment(canvas, rectTmp, globalPaint, startAngle, endAngle, params, isForum);
-                startAngle = 90;
-                endAngle = 270;
+                startAngle = 90 + params.rotationOffset;
+                endAngle = 270 + params.rotationOffset;
                 drawSegment(canvas, rectTmp, globalPaint, startAngle, endAngle, params, isForum);
                 globalPaint.setAlpha(255);
             }
@@ -529,7 +529,7 @@ public class StoriesUtilities {
                         }
                     }
                 }
-                float startAngle = step * i - 90;
+                float startAngle = step * i - 90 + params.rotationOffset;
                 float endAngle = startAngle + step;
                 startAngle += gapLen;
                 endAngle -= gapLen;
@@ -1202,6 +1202,7 @@ public class StoriesUtilities {
         public float rightBottomAngleToExclude = 0;
         public float leftTopAngleToExclude = 0;
         public float leftBottomAngleToExclude = 0;
+        public float rotationOffset = 0f;
         public boolean useArcProgress = true;
         public boolean isLast;
         public boolean isFirst;
