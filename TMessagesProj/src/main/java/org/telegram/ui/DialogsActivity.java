@@ -3638,7 +3638,6 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
             if (hasOnlySlefStories && getStoriesController().hasOnlySelfStories()) {
                 dialogStoriesCell.openSelfStories();
             } else {
-                dialogStoriesCell.disableNextExpandOvershoot();
                 scrollToTop(true, true);
             }
         });
@@ -5366,7 +5365,6 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
                 if (hasOnlySlefStories && getStoriesController().hasOnlySelfStories()) {
                     dialogStoriesCell.openSelfStories();
                 } else {
-                    dialogStoriesCell.disableNextExpandOvershoot();
                     scrollToTop(true, true);
                 }
             }
