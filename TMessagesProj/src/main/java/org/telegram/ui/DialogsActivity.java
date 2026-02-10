@@ -1759,9 +1759,6 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
         }
     }
 
-    private float collapsedStableWidth = -1f;
-    private float cachedExpandedWidth = -1f;
-
     private void updateStoriesViewAlpha(float alpha) {
         final float factorSearch = Utilities.clamp(searchAnimationProgress * 2, 1f, 0f);
         dialogStoriesCell.setAlpha((1f - progressToActionMode) * alpha * progressToDialogStoriesCell * (1f - factorSearch));
@@ -1829,47 +1826,16 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
             actionBar.getTitleOverlayContainer().setAlpha(1f - progressToActionMode);
 
             float progress1 = dialogStoriesCell.getCollapsedProgress1();
-            float progress2 = dialogStoriesCell.getCollapsedProgress2();
-            float scaledProgress1 = progress1 > 0 ? Math.min(1f, progress1 / dialogStoriesCell.K) : 0;
-            float collapseProgress = Math.max(scaledProgress1, progress2);
-
+            float K = dialogStoriesCell.K;
             float menuOffset = dialogStoriesCell.getMenuItemsOffset();
-            float lastViewRight = dialogStoriesCell.getLastViewRight();
-            float actualWidth = 0;
-            if (lastViewRight > 0) {
-                actualWidth = lastViewRight - menuOffset - dp(8);
-            }
-            float progress2Early = dialogStoriesCell != null ? dialogStoriesCell.getCollapsedProgress2() : collapseProgress;
-
-            float targetWidth;
-            if (progress2Early >= 1f && actualWidth > 0) {
-                targetWidth = actualWidth;
-                collapsedStableWidth = actualWidth;
-            } else if (collapsedStableWidth > 0) {
-                targetWidth = collapsedStableWidth;
-            } else {
-                int miniCount = dialogStoriesCell.getMiniItemsCount();
-                targetWidth = miniCount > 0 ? dp(12) + miniCount * dp(14) : 0;
-            }
+            float lastViewRight = dialogStoriesCell.getLastViewRightAnimated();
+            float lastViewRightX = lastViewRight > 0 ? lastViewRight - menuOffset - dp(8) : 0;
 
             float titleTranslationX;
-            if (collapseProgress == 0) {
-                titleTranslationX = 0;
-                cachedExpandedWidth = -1f;
+            if (progress1 >= K) {
+                titleTranslationX = lastViewRightX;
             } else {
-                float expandedLastViewRight = dialogStoriesCell.getExpandedLastViewRight();
-                float lastViewRightDirect = dialogStoriesCell.getLastViewRight();
-                boolean isCollapsing = dialogStoriesCell != null ? dialogStoriesCell.isCollapsed() : collapseProgress > dialogStoriesCell.K;
-                if (expandedLastViewRight > 0) {
-                    cachedExpandedWidth = expandedLastViewRight - menuOffset - dp(8);
-                }
-
-                if (isCollapsing && lastViewRightDirect > 0) {
-                    titleTranslationX = lastViewRightDirect - menuOffset - dp(8);
-                } else {
-                    float expandedWidth = cachedExpandedWidth > 0 ? cachedExpandedWidth : targetWidth;
-                    titleTranslationX = collapseProgress * expandedWidth;
-                }
+                titleTranslationX = (progress1 / K) * lastViewRightX;
             }
             titleTranslationX *= progressToDialogStoriesCell;
             actionBar.getTitlesContainer().setTranslationX(titleTranslationX);
@@ -5694,7 +5660,7 @@ public class DialogsActivity extends BaseFragment implements NotificationCenter.
         viewPage.listView.setViewsOffset(storiesOverscroll);
         viewPage.listView.setOverScrollMode(storiesOverscroll != 0 ? RecyclerView.OVER_SCROLL_NEVER : RecyclerView.OVER_SCROLL_ALWAYS);
         fragmentView.invalidate();
-        if (storiesOverscroll > dp(90) && !storiesOverscrollCalled) {
+        if (storiesOverscroll > dp(120) && !storiesOverscrollCalled) {
             if (dialogStoriesCell.openOverscrollSelectedStory()) {
                 storiesOverscrollCalled = true;
                 getOrCreateStoryViewer().doOnAnimationReady(() -> {

@@ -6,7 +6,6 @@ import static org.telegram.messenger.AndroidUtilities.lerp;
 
 import android.animation.Animator;
 import android.animation.AnimatorListenerAdapter;
-import android.animation.AnimatorSet;
 import android.animation.ValueAnimator;
 import android.annotation.SuppressLint;
 import android.content.Context;
@@ -132,6 +131,7 @@ public class DialogStoriesCell extends FrameLayout implements NotificationCenter
 
     float collapsedProgress = -1;
     private float lastViewRight = 0;
+    private float lastViewRightAnimated = -1;
 
     int currentState = -1;
 
@@ -743,7 +743,7 @@ public class DialogStoriesCell extends FrameLayout implements NotificationCenter
                 }
                 boolean isInAnimatedRange = adapterPosition >= animateFromPosition && adapterPosition < animateFromPosition + animateToDialogIds.size();
                 if (!isInAnimatedRange) {
-                    float alphaThreshold = K * 0.5f;
+                    float alphaThreshold = K * 0.75f;
                     float alphaProgress = Utilities.clamp(collapsedProgress1 / alphaThreshold, 1f, 0f);
                     cell.setAlpha(1 - alphaProgress);
                 }
@@ -874,6 +874,11 @@ public class DialogStoriesCell extends FrameLayout implements NotificationCenter
             collapsedProgress2 = progress / K;
         }
         checkCollapsedProgress();
+        if (currentState == TRANSITION_STATE && recyclerListView.getChildCount() > 0 && !animateToDialogIds.isEmpty()) {
+            lastViewRightAnimated = calculateLastViewRightForProgress();
+        } else {
+            lastViewRightAnimated = -1;
+        }
 
         boolean newCollapsed = progress > K;
         if (newCollapsed != collapsed) {
@@ -903,10 +908,6 @@ public class DialogStoriesCell extends FrameLayout implements NotificationCenter
         return collapsedProgress;
     }
 
-    public float getCollapsedProgress2() {
-        return collapsedProgress2;
-    }
-
     public float getCollapsedProgress1() {
         return collapsedProgress1;
     }
@@ -915,50 +916,63 @@ public class DialogStoriesCell extends FrameLayout implements NotificationCenter
         return lastViewRight;
     }
 
-    public float getExpandedLastViewRight() {
-        if (recyclerListView == null || recyclerListView.getChildCount() == 0) {
-            return 0;
-        }
+    public float getLastViewRightAnimated() {
+        return lastViewRightAnimated >= 0 ? lastViewRightAnimated : lastViewRight;
+    }
 
+    private float calculateLastViewRightForProgress() {
         int animateFromPosition = -1;
-        long selfId = UserConfig.getInstance(currentAccount).getClientUserId();
-        boolean drawSelfInMini = shouldDrawSelfInMini();
-
         for (int i = 0; i < recyclerListView.getChildCount(); i++) {
             StoryCell cell = (StoryCell) recyclerListView.getChildAt(i);
-            if (cell.dialogId != selfId || drawSelfInMini) {
+            if (cell.dialogId == animateToDialogIds.get(0)) {
                 animateFromPosition = recyclerListView.getChildAdapterPosition(cell);
                 break;
             }
         }
-
-        if (animateFromPosition < 0) {
+        if (animateFromPosition == -1) {
             animateFromPosition = layoutManager.findFirstVisibleItemPosition();
-            if (animateFromPosition < 0) {
-                animateFromPosition = 0;
+            if (animateFromPosition == -1) {
+                return -1;
             }
+        }
+        float result = 0;
+        for (int i = 0; i < recyclerListView.getChildCount(); i++) {
+            StoryCell cell = (StoryCell) recyclerListView.getChildAt(i);
+            int adapterPosition = recyclerListView.getChildAdapterPosition(cell);
+            boolean drawInParent = adapterPosition >= animateFromPosition && adapterPosition <= animateFromPosition + 2;
+            if (!drawInParent || collapsedProgress <= 0) continue;
+            float expandedValue = collapsedProgress1;
+            float collapsedValue = applyPositionPower(adapterPosition, animateFromPosition, collapsedProgress1);
+            float blendToCollapsedProgress = Utilities.clamp(collapsedProgress1 / K, 1f, 0f);
+            float cellCollapsedProgress = AndroidUtilities.lerp(expandedValue, collapsedValue, blendToCollapsedProgress);
+            float toX;
+            if (adapterPosition <= animateFromPosition) {
+                toX = 0;
+            } else if (adapterPosition == animateFromPosition + 1) {
+                toX = AndroidUtilities.dp(COLLAPSED_DIS) * cellCollapsedProgress - AndroidUtilities.dpf2(0.5f) + AndroidUtilities.lerp(AndroidUtilities.dp(COLLAPSED_DIS), 0f, collapsedProgress);
+            } else {
+                toX = AndroidUtilities.dp(COLLAPSED_DIS) + AndroidUtilities.dp(COLLAPSED_DIS) * cellCollapsedProgress - AndroidUtilities.dpf2(0.5f) + AndroidUtilities.lerp(AndroidUtilities.dp(COLLAPSED_DIS + COLLAPSED_DIS), 0f, collapsedProgress);
+            }
+            toX += menuItemsOffset;
+            float expandedX = AndroidUtilities.lerp(0, -cell.getLeft(), collapsedProgress1);
+            float collapsedX = toX - cell.getLeft();
+            float translationX = AndroidUtilities.lerp(expandedX, collapsedX, blendToCollapsedProgress);
+            float right = recyclerListView.getX() + cell.getLeft() + translationX + cell.getMeasuredWidth() / 2f + dp(ITEM_WIDTH) / 2f;
+            if (result == 0 || right > result) {
+                result = right;
+            }
+        }
+        float progressMin = Math.min(collapsedProgress, collapsedProgress2);
+        if (progressMin != 0 && result > 0) {
+            int cellWidth = dp(72);
+            result += -cellWidth + dp(6) + getAvatarRight(cellWidth, collapsedProgress) + dp(12);
         }
 
-        float maxRight = 0;
-        for (int i = 0; i < recyclerListView.getChildCount(); i++) {
-            View child = recyclerListView.getChildAt(i);
-            int adapterPosition = recyclerListView.getChildAdapterPosition(child);
-            if (adapterPosition >= animateFromPosition && adapterPosition <= animateFromPosition + 2) {
-                float right = recyclerListView.getX() + child.getX() + child.getMeasuredWidth() / 2f + dp(ITEM_WIDTH) / 2f;
-                if (right > maxRight) {
-                    maxRight = right;
-                }
-            }
-        }
-        return maxRight;
+        return result;
     }
 
     public int getItemsCount() {
         return adapter != null ? adapter.getItemCount() : 0;
-    }
-
-    public int getMiniItemsCount() {
-        return miniAdapter != null ? miniAdapter.getItemCount() : 0;
     }
 
     public void scrollToFirstCell() {
@@ -1743,7 +1757,7 @@ public class DialogStoriesCell extends FrameLayout implements NotificationCenter
                 invalidate();
                 recyclerListView.invalidate();
             }
-            textAlphaTransition = mini ? 0 : 1f - Utilities.clamp(collapsedProgress / (K * 0.3f), 1f, 0);
+            textAlphaTransition = mini ? 0 : 1f - Utilities.clamp(collapsedProgress / (K * 0.1f), 1f, 0);
             textViewContainer.setAlpha(textAlphaTransition * textAlpha);
         }
 
